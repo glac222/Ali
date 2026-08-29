@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import './db.js';
+import { initSchema } from './db.js';
 
 import pantryRouter from './routes/pantry.js';
 import recipesRouter from './routes/recipes.js';
@@ -16,7 +16,8 @@ import memoryRouter from './routes/memory.js';
 import chatRouter from './routes/chat.js';
 
 const app = express();
-app.use(cors());
+const allowedOrigin = process.env.FRONTEND_ORIGIN;
+app.use(cors(allowedOrigin ? { origin: allowedOrigin } : {}));
 app.use(express.json());
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
@@ -37,6 +38,13 @@ if (fs.existsSync(clientDist)) {
 }
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Mi Cocina API escuchando en http://localhost:${PORT}`);
-});
+initSchema()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Mi Cocina API escuchando en http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('No se pudo inicializar la base de datos:', err);
+    process.exit(1);
+  });

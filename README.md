@@ -1,11 +1,11 @@
 # Mi Cocina — Gus
 
-App de cocina y nutrición personal para Gus en Guayaquil. Backend en Node/Express + SQLite, frontend en React (Vite), y un chat integrado con la API de DeepSeek (con modo simulado automático si no hay API key configurada).
+App de cocina y nutrición personal para Gus en Guayaquil. Backend en Node/Express + PostgreSQL, frontend en React (Vite), y un chat integrado con la API de DeepSeek (con modo simulado automático si no hay API key configurada).
 
 ## Estructura
 
 ```
-server/   API REST + SQLite (better-sqlite3) + proxy a DeepSeek
+server/   API REST + PostgreSQL (pg) + proxy a DeepSeek
 client/   Frontend React (Vite), diseño del mockup original
 ```
 
@@ -13,15 +13,17 @@ client/   Frontend React (Vite), diseño del mockup original
 
 ### 1. Backend
 
+Necesitas un Postgres accesible (local o remoto).
+
 ```bash
 cd server
 npm install
-cp .env.example .env      # opcional: agrega tu DEEPSEEK_API_KEY
-npm run seed               # crea y llena la base de datos con los datos de Gus
+cp .env.example .env      # agrega DATABASE_URL y, opcional, DEEPSEEK_API_KEY
+npm run seed               # crea las tablas y llena la base con los datos de Gus
 npm run dev                # http://localhost:4000
 ```
 
-Sin `DEEPSEEK_API_KEY`, el chat responde en **modo simulado** (igual que el mockup original). Con la key configurada, las respuestas vienen de DeepSeek real, usando un system prompt que se arma dinámicamente con la despensa, el plan semanal y la memoria de comidas guardada en la base de datos.
+Sin `DEEPSEEK_API_KEY`, el chat responde en **modo simulado**. Con la key configurada, las respuestas vienen de DeepSeek real, usando un system prompt que se arma dinámicamente con la despensa, el plan semanal y la memoria de comidas guardada en la base.
 
 ### 2. Frontend
 
@@ -31,95 +33,114 @@ npm install
 npm run dev                 # http://localhost:5173 (proxea /api hacia :4000)
 ```
 
-Abre `http://localhost:5173`.
-
 ## Variables de entorno
 
 **server/.env**
 ```
 PORT=4000
-DEEPSEEK_API_KEY=          # tu key de DeepSeek — si se deja vacío, modo simulado
+DATABASE_URL=postgres://usuario:password@host:5432/basededatos
+DEEPSEEK_API_KEY=                          # vacío = modo simulado
+FRONTEND_ORIGIN=https://ali.calimundo.com  # restringe CORS en producción
 ```
 
-**client/.env** (solo necesario si frontend y backend NO estarán en el mismo dominio)
+**client/.env** (solo en build de producción, cuando el backend vive en otro dominio)
 ```
-VITE_API_URL=https://api.tu-backend.com
+VITE_API_URL=https://tu-backend.onrender.com
 ```
-
-## Build de producción
-
-```bash
-cd client && npm run build   # genera client/dist
-```
-
-El servidor Express (`server/src/index.js`) detecta automáticamente `client/dist` y sirve el frontend compilado además de la API — con esto **un solo proceso Node atiende todo el dominio** (frontend + `/api/*`).
 
 ---
 
-## Desplegar en Hostinger
+## Despliegue elegido: Neon + Render + Hostinger (subdominio `ali.calimundo.com`)
 
-La estrategia depende de tu tipo de plan. Verifica en **hPanel → tu sitio → Avanzado** si existe la opción **"Configurar app Node.js"**, o si tienes un plan **VPS** (con acceso SSH/root).
+Tu plan de Hostinger es **Premium Web Hosting** (compartido) — no corre un backend Node persistente. La app queda dividida así:
 
-### Opción A — Hostinger VPS (recomendada, más control)
+- **Base de datos**: Postgres gratis y persistente en [Neon](https://neon.tech).
+- **Backend** (API + chat): Node/Express en [Render](https://render.com), free tier.
+- **Frontend**: build estático (`client/dist`) subido al subdominio `ali.calimundo.com` en Hostinger vía el Administrador de Archivos.
 
-1. Conéctate por SSH y clona el repo en el servidor.
-2. Instala Node.js (v20+) si no está: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs`.
-3. Instala dependencias y compila el frontend:
+### Paso 1 — Base de datos en Neon
+
+1. Crea una cuenta gratis en [neon.tech](https://neon.tech) (no pide tarjeta).
+2. Crea un proyecto nuevo (cualquier nombre, ej. `mi-cocina`).
+3. En el dashboard del proyecto, copia el **Connection string** (empieza con `postgres://...`, incluye `?sslmode=require`).
+
+### Paso 2 — Backend en Render
+
+1. Crea una cuenta gratis en [render.com](https://render.com) y conecta tu repo de GitHub (`glac222/Ali`).
+2. **New → Blueprint**, selecciona este repo — Render detecta el `render.yaml` de la raíz automáticamente y prepara el servicio `mi-cocina-api` con `rootDir: server`.
+   - Si prefieres crearlo a mano: **New → Web Service**, root directory `server`, build command `npm install`, start command `npm start`.
+3. En **Environment**, agrega:
+   - `DATABASE_URL` → el connection string de Neon del paso 1.
+   - `DEEPSEEK_API_KEY` → tu key de DeepSeek (déjala vacía si quieres modo simulado por ahora).
+   - `FRONTEND_ORIGIN` ya viene definida como `https://ali.calimundo.com` en el `render.yaml`.
+4. Despliega. Cuando termine, corre el seed **una sola vez** desde la shell de Render (Dashboard → tu servicio → Shell):
    ```bash
-   cd server && npm install --omit=dev && npm run seed
+   npm run seed
+   ```
+5. Copia la URL pública que te da Render (algo como `https://mi-cocina-api.onrender.com`) y verifica que responde:
+   ```bash
+   curl https://mi-cocina-api.onrender.com/api/health
+   ```
+
+**Nota:** el free tier de Render "duerme" el servicio tras ~15 min sin tráfico y tarda unos segundos en despertar en la siguiente petición — normal, no es un error. Los datos en Neon nunca se pierden aunque el servicio de Render se reinicie o redespliegue.
+
+### Paso 3 — Compilar el frontend apuntando al backend real
+
+En tu máquina (o en esta misma sesión, avísame la URL de Render y lo hago yo):
+
+```bash
+cd client
+echo "VITE_API_URL=https://mi-cocina-api.onrender.com" > .env
+npm install
+npm run build       # genera client/dist
+```
+
+### Paso 4 — Subdominio en Hostinger
+
+1. En hPanel: **Dominios → calimundo.com → Subdominios** → crea `ali` (queda `ali.calimundo.com`), apuntando a una carpeta nueva, ej. `public_html/ali`.
+2. Espera unos minutos a que el subdominio propague (Hostinger suele activarlo casi al instante).
+
+### Paso 5 — Subir el build
+
+1. Comprime el contenido de `client/dist` (no la carpeta en sí, sus archivos) en un `.zip`.
+2. hPanel → **Archivos → Administrador de archivos** → entra a `public_html/ali`.
+3. Sube el `.zip` y usa "Extraer" ahí mismo.
+4. Verifica que `index.html` y la carpeta `assets/` queden directamente dentro de `public_html/ali` (no dentro de una subcarpeta extra).
+5. Abre `https://ali.calimundo.com` — deberías ver la app completa hablando con el backend de Render.
+
+Cada vez que cambies el código del frontend: repite el Paso 3 (rebuild) y el Paso 5 (resubir el zip). Para el backend, un `git push` a Render (o el redeploy manual desde su dashboard) basta — los datos en Neon no se tocan.
+
+---
+
+## Alternativas de despliegue (si cambias de plan de Hostinger)
+
+<details>
+<summary>Hostinger VPS — todo en un solo servidor</summary>
+
+1. Conéctate por SSH y clona el repo.
+2. Instala Node.js 20+, luego:
+   ```bash
+   cd server && npm install --omit=dev
    cd ../client && npm install && npm run build
    ```
-4. Configura `server/.env` con tu `DEEPSEEK_API_KEY` y el `PORT` que quieras usar internamente (ej. 4000).
-5. Corre el servidor con un gestor de procesos para que sobreviva reinicios:
-   ```bash
-   npm install -g pm2
-   cd ../server && pm2 start src/index.js --name mi-cocina
-   pm2 save && pm2 startup
-   ```
-6. Configura Nginx como proxy inverso hacia el puerto interno (Hostinger VPS suele traer Nginx o puedes instalarlo):
-   ```nginx
-   server {
-     listen 80;
-     server_name tu-dominio.com;
-     location / {
-       proxy_pass http://localhost:4000;
-       proxy_http_version 1.1;
-       proxy_set_header Upgrade $http_upgrade;
-       proxy_set_header Connection 'upgrade';
-       proxy_set_header Host $host;
-       proxy_cache_bypass $http_upgrade;
-     }
-   }
-   ```
-7. Activa SSL gratis con Certbot: `sudo certbot --nginx -d tu-dominio.com`.
+3. Configura `server/.env` con `DATABASE_URL` (puede ser el mismo Neon, o Postgres local en el VPS) y `DEEPSEEK_API_KEY`.
+4. `npm run seed` una vez, luego corre con PM2: `pm2 start src/index.js --name mi-cocina && pm2 save && pm2 startup`.
+5. Nginx como proxy inverso hacia el puerto interno, más `certbot --nginx` para SSL gratis.
 
-Con esto, `https://tu-dominio.com` sirve la app completa (frontend + API + chat) desde un solo servidor.
+Con esto un solo proceso Node sirve frontend + API (Express ya detecta `client/dist` automáticamente).
+</details>
 
-### Opción B — Hosting Web con "Node.js App" (hPanel)
+<details>
+<summary>Hosting Web con "Node.js App" en hPanel (planes Business/Cloud)</summary>
 
-1. En hPanel: **Sitios web → tu dominio → Avanzado → Configurar app Node.js**.
-2. Sube el proyecto completo (o conéctalo por Git si esa opción está disponible) y define el **directorio de la app** como `server/`.
-3. Define el **archivo de arranque** como `src/index.js`.
-4. En "Variables de entorno" de esa herramienta, agrega `DEEPSEEK_API_KEY` (y `PORT` si hPanel lo requiere — normalmente Passenger asigna el puerto automáticamente vía `process.env.PORT`, que el código ya respeta).
-5. Antes de iniciar la app, corre desde la terminal de hPanel (o vía SSH si el plan lo permite):
-   ```bash
-   cd server && npm install && npm run seed
-   cd ../client && npm install && npm run build
-   ```
-6. Reinicia la app Node desde hPanel. El propio Express servirá `client/dist` automáticamente.
-
-**Nota:** `better-sqlite3` es un módulo nativo — `npm install` debe ejecutarse en el propio servidor de Hostinger (no subir `node_modules` desde tu máquina), para que compile correctamente para esa arquitectura.
-
-### Opción C — Hosting compartido sin soporte Node.js
-
-Si tu plan es básico (solo PHP/estático), Hostinger no puede correr el backend directamente. En ese caso:
-
-1. Sube solo `client/dist` (después de `npm run build`) a `public_html/` vía el Administrador de Archivos o FTP — eso sirve el frontend como sitio estático.
-2. Despliega `server/` en un servicio gratuito/económico que sí soporte Node.js persistente (ej. Railway, Render, Fly.io).
-3. Define `VITE_API_URL` con la URL de ese backend antes de compilar el frontend (`client/.env`), y vuelve a correr `npm run build`.
-4. Asegúrate de que el backend permita CORS desde tu dominio de Hostinger (ya está habilitado globalmente vía `cors()` en `server/src/index.js`).
+1. hPanel → tu dominio → Avanzado → **Configurar app Node.js**.
+2. Directorio de la app: `server/`. Archivo de arranque: `src/index.js`.
+3. Variables de entorno: `DATABASE_URL`, `DEEPSEEK_API_KEY`.
+4. Corre `npm install && npm run seed` en `server/`, y `npm install && npm run build` en `client/` desde la terminal que dé hPanel.
+5. Reinicia la app — Express sirve `client/dist` automáticamente, sin necesitar Render.
+</details>
 
 ## Notas sobre los datos
 
-- Todo el estado (despensa, recetas, plan, lista de compras, calificaciones, memoria del chat) vive en `server/data/mi-cocina.db` (SQLite). Haz backup de ese archivo periódicamente si lo despliegas en producción.
+- Todo el estado (despensa, recetas, plan, lista de compras, calificaciones, memoria del chat) vive en Postgres — persiste sin importar cuántas veces se reinicie o redespliegue el backend.
 - `npm run seed` solo puebla la base si está vacía; usa `npm run seed -- --force` para reiniciar todos los datos a los valores de ejemplo de Gus.

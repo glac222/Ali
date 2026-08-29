@@ -1,4 +1,4 @@
-import db from '../db.js';
+import { query } from '../db.js';
 
 const FIXED_RULES = `REGLAS FIJAS (NUNCA ROMPER):
 1. Solo freír/hervir/abrir latas — sin sopas, sin hornear, sin recetas complicadas
@@ -13,11 +13,11 @@ const FIXED_RULES = `REGLAS FIJAS (NUNCA ROMPER):
 10. Desayuno es OPCIONAL — batido+sándwiches es opción rápida, no obligatoria
 11. Cuando registres comidas que Gus menciona, responde confirmando y añade [MEMORIA:descripción corta] al final para que el sistema la guarde`;
 
-export function buildSystemPrompt() {
-  const pantry = db.prepare('SELECT name, quantity, expires_label FROM pantry_items ORDER BY category, id').all();
+export async function buildSystemPrompt() {
+  const pantry = await query('SELECT name, quantity, expires_label FROM pantry_items ORDER BY category, id');
   const pantryStr = pantry.map((p) => `${p.name} (${p.quantity}${p.expires_label ? ', ' + p.expires_label : ''})`).join(', ');
 
-  const planRows = db.prepare('SELECT weekday, meal_type, title FROM meal_plan ORDER BY sort_order').all();
+  const planRows = await query('SELECT weekday, meal_type, title FROM meal_plan ORDER BY sort_order');
   const byDay = {};
   for (const r of planRows) {
     byDay[r.weekday] = byDay[r.weekday] || [];
@@ -26,7 +26,7 @@ export function buildSystemPrompt() {
   const dayLabels = { lunes: 'Lunes', martes: 'Martes', miercoles: 'Miércoles', jueves: 'Jueves', viernes: 'Viernes', sabado: 'Sábado', domingo: 'Domingo' };
   const planStr = Object.entries(byDay).map(([day, meals]) => `${dayLabels[day] || day}: ${meals.join(' | ')}`).join('. ');
 
-  const memory = db.prepare('SELECT entry FROM meal_memory ORDER BY id DESC LIMIT 20').all();
+  const memory = await query('SELECT entry FROM meal_memory ORDER BY id DESC LIMIT 20');
   const memStr = memory.length
     ? '\n\nMEMORIA DE COMIDAS RECIENTES (esta semana):\n' + memory.map((m) => `- ${m.entry}`).join('\n')
     : '';

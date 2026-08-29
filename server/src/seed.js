@@ -1,182 +1,207 @@
-import db from './db.js';
+import { pool, query, one, initSchema } from './db.js';
 
-const tables = [
+const TABLES = [
   'pantry_items', 'recipe_ingredients', 'recipe_steps', 'recipes',
   'meal_plan', 'shopping_list_items', 'shopping_list_totals',
   'discoveries', 'nutrition_log', 'meal_memory', 'chat_messages',
 ];
 
-function seed() {
-  const already = db.prepare('SELECT COUNT(*) AS n FROM pantry_items').get().n;
-  if (already > 0 && process.argv[2] !== '--force') {
+async function seed() {
+  await initSchema();
+
+  const already = await one('SELECT COUNT(*) AS n FROM pantry_items');
+  if (Number(already.n) > 0 && process.argv[2] !== '--force') {
     console.log('La base de datos ya tiene datos. Usa `npm run seed -- --force` para reiniciar.');
+    await pool.end();
     return;
   }
 
-  const clear = db.transaction(() => {
-    for (const t of tables) db.exec(`DELETE FROM ${t}`);
-  });
-  clear();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const t of TABLES) await client.query(`DELETE FROM ${t}`);
 
-  const insertPantry = db.prepare(`INSERT INTO pantry_items (name, quantity, category, expires_label, status, notes) VALUES (?,?,?,?,?,?)`);
-  const pantry = [
-    ['Pechuga de pollo', '1.2 kg', 'carnes', 'Refrigerado · 4 días', 'ok', ''],
-    ['Bistec de res', '800 g', 'carnes', 'Refrigerado · 3 días', 'ok', ''],
-    ['Hígado de res', '500 g', 'carnes', 'Úsalo en 2 días', 'am', 'sin cebolla'],
-    ['Salchichas viena', '1 paq.', 'carnes', '6 días', 'ok', ''],
-    ['Jamón de pavo', '250 g', 'carnes', '5 días', 'ok', ''],
-    ['Leche entera', '1 L', 'lacteos', 'Vence mañana', 're', ''],
-    ['Pan molde integral', '1 funda', 'lacteos', 'Vence hoy', 're', ''],
-    ['Queso crema', '1 paq.', 'lacteos', '8 días', 'ok', ''],
-    ['Yogurt', '1 galón', 'lacteos', '5 días', 'ok', ''],
-    ['Huevos', '22 un.', 'lacteos', '~18 días', 'ok', ''],
-    ['Arroz blanco', '3.5 kg', 'granos', '8 meses', 'ok', ''],
-    ['Papas chola', '2 kg', 'granos', '~10 días', 'ok', ''],
-    ['Choclos', '6 un.', 'granos', 'Frescos · ~5 días', 'ok', ''],
-    ['Guineos (para batido)', '6 un.', 'granos', '~4 días', 'ok', ''],
-    ['Lechuga crespa', '1 un.', 'vegetales', 'Fresca · ~2 días', 'am', ''],
-    ['Aguacate', '2 un.', 'vegetales', 'Fresco · ~3 días', 'am', ''],
-    ['Cebolla colorada', '4 un.', 'vegetales', '~12 días', 'ok', ''],
-    ['Tomate riñón', '6 un.', 'vegetales', '~7 días', 'ok', ''],
-    ['Pimiento verde', '3 un.', 'vegetales', '~8 días', 'ok', ''],
-    ['Atún en agua (lata)', '3 latas', 'latas', '2 años', 'ok', ''],
-    ['Sardinas en tomate (lata)', '2 latas', 'latas', '2 años', 'ok', ''],
-    ['Menestra de lenteja (lata)', '4 latas', 'latas', '18 meses', 'ok', ''],
-    ['Pasta de ajo', '1 frasco', 'latas', '6 meses', 'ok', ''],
-  ];
-  const insertPantryMany = db.transaction((rows) => rows.forEach((r) => insertPantry.run(...r)));
-  insertPantryMany(pantry);
-
-  const insertRecipe = db.prepare(`INSERT INTO recipes (slug, title, description, tags, time_label, gradient, source) VALUES (?,?,?,?,?,?,?)`);
-  const insertIng = db.prepare(`INSERT INTO recipe_ingredients (recipe_id, text, missing, sort_order) VALUES (?,?,?,?)`);
-  const insertStep = db.prepare(`INSERT INTO recipe_steps (recipe_id, step_number, text) VALUES (?,?,?)`);
-
-  const recipes = [
-    {
-      slug: 'batido',
-      title: 'Batido de guineo con leche o yogurt',
-      description: 'Guineo maduro + leche entera (o yogurt) en licuadora. Porción grande: 2 guineos + 1 vaso grande. Variante: añadir avena para más saciedad.',
-      tags: ['Sin cocción', '3 min', 'Desayuno opcional'],
-      time_label: '3 min',
-      gradient: 'linear-gradient(160deg,#F5E9C8,#C8A03A)',
-      ings: ['Guineos — 1-2 unidades', 'Leche entera o yogurt — 1 vaso grande'],
-      steps: ['Pelar guineos y partir en trozos.', 'Licuadora con leche. Licuar. Listo.'],
-    },
-    {
-      slug: 'sandwich',
-      title: '3 sándwiches: queso crema + jamón + tortilla',
-      description: 'Tortilla de 4 huevos frita plana en sartén. Pan molde con queso crema y jamón de pavo. Armar 3 sándwiches. Rápido y muy contundente.',
-      tags: ['Freír tortilla', '12 min', 'Desayuno opcional'],
-      time_label: '12 min',
-      gradient: 'linear-gradient(160deg,#EBF5EF,#4A8F68)',
-      ings: ['Huevos — 4 unidades', 'Pan molde — 6 rebanadas', 'Queso crema — al gusto', 'Jamón de pavo — 3-4 rebanadas'],
-      steps: ['Batir 4 huevos con sal.', 'Freír como tortilla plana en sartén.', 'Untar queso crema en el pan.', 'Añadir jamón + tortilla. Armar 3 sándwiches.'],
-    },
-    {
-      slug: 'polloensalada',
-      title: 'Pollo frito + ensalada + choclos',
-      description: 'Pechuga o presas fritas con sal y ajo. Ensalada grande de lechuga crespa, tomate y aguacate con limón. Choclos fritos o hervidos. 3 cuerpos en el plato, sin arroz necesariamente.',
-      tags: ['Freír', '20 min', 'Sin arroz ok'],
-      time_label: '20 min',
-      gradient: 'linear-gradient(160deg,#D0E8D8,#3A7856)',
-      ings: ['Pollo — 2 filetes o varias presas', 'Lechuga crespa, tomate, aguacate', 'Choclos — 2 unidades', 'Limón para la ensalada'],
-      steps: ['Freír pollo con sal y pasta ajo, 7 min c/lado.', 'Hervir o freír choclos.', 'Picar lechuga, tomate, aguacate + limón.', 'Servir los 3 elementos en el plato.'],
-    },
-    {
-      slug: 'atun',
-      title: 'Atún con cebolla y tomate',
-      description: '1 lata de atún en agua escurrida con cebolla colorada picada, tomate riñón y limón. Sin cocción. Solo o sobre arroz.',
-      tags: ['Sin cocción', '3 min', 'Merienda/Cena'],
-      time_label: '3 min',
-      gradient: 'linear-gradient(160deg,#C8D9EA,#3A5A8F)',
-      ings: ['Atún en lata — 1 (máx.)', 'Cebolla colorada — media', 'Tomate riñón — 1', 'Limón'],
-      steps: ['Escurrir el atún.', 'Picar cebolla y tomate fino.', 'Mezclar todo con limón.', 'Servir solo o sobre arroz.'],
-    },
-    {
-      slug: 'higado',
-      title: 'Hígado frito · solo sal · sin cebolla',
-      description: 'Bistec de hígado frito con sal únicamente. Sin cebolla encima. Con arroz y menestra de lata o con ensalada si no hay menestra.',
-      tags: ['Freír', '10 min', 'Almuerzo'],
-      time_label: '10 min',
-      gradient: 'linear-gradient(160deg,#EAD9C8,#8F5A3A)',
-      ings: ['Hígado de res — bistec', 'Sal y aceite', 'Arroz + menestra de lata'],
-      steps: ['Sartén caliente con aceite.', 'Sazonar hígado solo con sal.', 'Freír 3-4 min por lado.', 'Servir sin cebolla encima.'],
-    },
-  ];
-
-  const insertRecipesTx = db.transaction((list) => {
-    for (const r of list) {
-      const info = insertRecipe.run(r.slug, r.title, r.description, JSON.stringify(r.tags), r.time_label, r.gradient, 'mio');
-      const recipeId = info.lastInsertRowid;
-      r.ings.forEach((text, i) => insertIng.run(recipeId, text, 0, i));
-      r.steps.forEach((text, i) => insertStep.run(recipeId, i + 1, text));
+    const pantry = [
+      ['Pechuga de pollo', '1.2 kg', 'carnes', 'Refrigerado · 4 días', 'ok', ''],
+      ['Bistec de res', '800 g', 'carnes', 'Refrigerado · 3 días', 'ok', ''],
+      ['Hígado de res', '500 g', 'carnes', 'Úsalo en 2 días', 'am', 'sin cebolla'],
+      ['Salchichas viena', '1 paq.', 'carnes', '6 días', 'ok', ''],
+      ['Jamón de pavo', '250 g', 'carnes', '5 días', 'ok', ''],
+      ['Leche entera', '1 L', 'lacteos', 'Vence mañana', 're', ''],
+      ['Pan molde integral', '1 funda', 'lacteos', 'Vence hoy', 're', ''],
+      ['Queso crema', '1 paq.', 'lacteos', '8 días', 'ok', ''],
+      ['Yogurt', '1 galón', 'lacteos', '5 días', 'ok', ''],
+      ['Huevos', '22 un.', 'lacteos', '~18 días', 'ok', ''],
+      ['Arroz blanco', '3.5 kg', 'granos', '8 meses', 'ok', ''],
+      ['Papas chola', '2 kg', 'granos', '~10 días', 'ok', ''],
+      ['Choclos', '6 un.', 'granos', 'Frescos · ~5 días', 'ok', ''],
+      ['Guineos (para batido)', '6 un.', 'granos', '~4 días', 'ok', ''],
+      ['Lechuga crespa', '1 un.', 'vegetales', 'Fresca · ~2 días', 'am', ''],
+      ['Aguacate', '2 un.', 'vegetales', 'Fresco · ~3 días', 'am', ''],
+      ['Cebolla colorada', '4 un.', 'vegetales', '~12 días', 'ok', ''],
+      ['Tomate riñón', '6 un.', 'vegetales', '~7 días', 'ok', ''],
+      ['Pimiento verde', '3 un.', 'vegetales', '~8 días', 'ok', ''],
+      ['Atún en agua (lata)', '3 latas', 'latas', '2 años', 'ok', ''],
+      ['Sardinas en tomate (lata)', '2 latas', 'latas', '2 años', 'ok', ''],
+      ['Menestra de lenteja (lata)', '4 latas', 'latas', '18 meses', 'ok', ''],
+      ['Pasta de ajo', '1 frasco', 'latas', '6 meses', 'ok', ''],
+    ];
+    for (const r of pantry) {
+      await client.query(
+        'INSERT INTO pantry_items (name, quantity, category, expires_label, status, notes) VALUES ($1,$2,$3,$4,$5,$6)',
+        r
+      );
     }
-  });
-  insertRecipesTx(recipes);
 
-  const insertPlan = db.prepare(`INSERT INTO meal_plan (weekday, meal_type, title, detail, optional, sort_order) VALUES (?,?,?,?,?,?)`);
-  const plan = [
-    ['lunes', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Opcional — rápido y contundente', 1],
-    ['lunes', 'Almuerzo', 'Pollo frito + ensalada (lechuga, tomate, aguacate) + choclos', 'Sin arroz · 3 cuerpos en el plato', 0],
-    ['lunes', 'Merienda', 'Atún + cebolla + tomate + limón', 'Sin cocción', 0],
-    ['martes', 'Desayuno', 'Batido o sándwiches — opcional', 'Según el tiempo disponible', 1],
-    ['martes', 'Almuerzo', 'Bistec de res frito + arroz + menestra', 'Freír bistec con sal y ajo', 0],
-    ['martes', 'Merienda', 'Pollo frito + ensalada lechuga y tomate', 'Freír presas', 0],
-    ['miercoles', 'Desayuno', 'Opcional', '', 1],
-    ['miercoles', 'Almuerzo', 'Hígado frito (solo sal, sin cebolla) + arroz + menestra', 'Úsalo hoy — lleva 2 días', 0],
-    ['miercoles', 'Merienda', 'Sardinas en tomate + arroz + medio aguacate', 'Abrir lata', 0],
-    ['jueves', 'Desayuno', 'Opcional', '', 1],
-    ['jueves', 'Almuerzo', 'Pescado frito + ensalada + limón', 'Freír con sal y ajo', 0],
-    ['jueves', 'Merienda', 'Puré de papas + arroz + carne frita', 'Puré siempre con arroz', 0],
-    ['viernes', 'Desayuno', 'Opcional', '', 1],
-    ['viernes', 'Almuerzo', 'Camarones fritos al ajo + arroz + ensalada tomate', '3 min por lado', 0],
-    ['viernes', 'Merienda', 'Carne en trozos + tomate + pimiento + arroz', 'Salsita rápida', 0],
-    ['sabado', 'Desayuno', 'Opcional', '', 1],
-    ['sabado', 'Almuerzo', 'Chancho frito + arroz + menestra + ensalada', '', 0],
-    ['sabado', 'Merienda', 'Arroz + tortilla de huevo + salchicha', '', 0],
-    ['domingo', 'Desayuno', 'Encebollado comprado (dosis doble) + chifle + pan', 'No preparar — comprar hecho', 0],
-    ['domingo', 'Almuerzo', 'Pollo frito + arroz + puré de papas + ensalada', 'Puré siempre con arroz', 0],
-    ['domingo', 'Merienda', 'Sándwiches triples queso crema + jamón', 'Sin cocción', 0],
-  ];
-  const insertPlanTx = db.transaction((rows) => rows.forEach((r, i) => insertPlan.run(r[0], r[1], r[2], r[3], r[4], i)));
-  insertPlanTx(plan);
+    const recipes = [
+      {
+        slug: 'batido',
+        title: 'Batido de guineo con leche o yogurt',
+        description: 'Guineo maduro + leche entera (o yogurt) en licuadora. Porción grande: 2 guineos + 1 vaso grande. Variante: añadir avena para más saciedad.',
+        tags: ['Sin cocción', '3 min', 'Desayuno opcional'],
+        time_label: '3 min',
+        gradient: 'linear-gradient(160deg,#F5E9C8,#C8A03A)',
+        ings: ['Guineos — 1-2 unidades', 'Leche entera o yogurt — 1 vaso grande'],
+        steps: ['Pelar guineos y partir en trozos.', 'Licuadora con leche. Licuar. Listo.'],
+      },
+      {
+        slug: 'sandwich',
+        title: '3 sándwiches: queso crema + jamón + tortilla',
+        description: 'Tortilla de 4 huevos frita plana en sartén. Pan molde con queso crema y jamón de pavo. Armar 3 sándwiches. Rápido y muy contundente.',
+        tags: ['Freír tortilla', '12 min', 'Desayuno opcional'],
+        time_label: '12 min',
+        gradient: 'linear-gradient(160deg,#EBF5EF,#4A8F68)',
+        ings: ['Huevos — 4 unidades', 'Pan molde — 6 rebanadas', 'Queso crema — al gusto', 'Jamón de pavo — 3-4 rebanadas'],
+        steps: ['Batir 4 huevos con sal.', 'Freír como tortilla plana en sartén.', 'Untar queso crema en el pan.', 'Añadir jamón + tortilla. Armar 3 sándwiches.'],
+      },
+      {
+        slug: 'polloensalada',
+        title: 'Pollo frito + ensalada + choclos',
+        description: 'Pechuga o presas fritas con sal y ajo. Ensalada grande de lechuga crespa, tomate y aguacate con limón. Choclos fritos o hervidos. 3 cuerpos en el plato, sin arroz necesariamente.',
+        tags: ['Freír', '20 min', 'Sin arroz ok'],
+        time_label: '20 min',
+        gradient: 'linear-gradient(160deg,#D0E8D8,#3A7856)',
+        ings: ['Pollo — 2 filetes o varias presas', 'Lechuga crespa, tomate, aguacate', 'Choclos — 2 unidades', 'Limón para la ensalada'],
+        steps: ['Freír pollo con sal y pasta ajo, 7 min c/lado.', 'Hervir o freír choclos.', 'Picar lechuga, tomate, aguacate + limón.', 'Servir los 3 elementos en el plato.'],
+      },
+      {
+        slug: 'atun',
+        title: 'Atún con cebolla y tomate',
+        description: '1 lata de atún en agua escurrida con cebolla colorada picada, tomate riñón y limón. Sin cocción. Solo o sobre arroz.',
+        tags: ['Sin cocción', '3 min', 'Merienda/Cena'],
+        time_label: '3 min',
+        gradient: 'linear-gradient(160deg,#C8D9EA,#3A5A8F)',
+        ings: ['Atún en lata — 1 (máx.)', 'Cebolla colorada — media', 'Tomate riñón — 1', 'Limón'],
+        steps: ['Escurrir el atún.', 'Picar cebolla y tomate fino.', 'Mezclar todo con limón.', 'Servir solo o sobre arroz.'],
+      },
+      {
+        slug: 'higado',
+        title: 'Hígado frito · solo sal · sin cebolla',
+        description: 'Bistec de hígado frito con sal únicamente. Sin cebolla encima. Con arroz y menestra de lata o con ensalada si no hay menestra.',
+        tags: ['Freír', '10 min', 'Almuerzo'],
+        time_label: '10 min',
+        gradient: 'linear-gradient(160deg,#EAD9C8,#8F5A3A)',
+        ings: ['Hígado de res — bistec', 'Sal y aceite', 'Arroz + menestra de lata'],
+        steps: ['Sartén caliente con aceite.', 'Sazonar hígado solo con sal.', 'Freír 3-4 min por lado.', 'Servir sin cebolla encima.'],
+      },
+    ];
+    for (const r of recipes) {
+      const { rows } = await client.query(
+        `INSERT INTO recipes (slug, title, description, tags, time_label, gradient, source) VALUES ($1,$2,$3,$4,$5,$6,'mio') RETURNING id`,
+        [r.slug, r.title, r.description, JSON.stringify(r.tags), r.time_label, r.gradient]
+      );
+      const recipeId = rows[0].id;
+      for (let i = 0; i < r.ings.length; i++) {
+        await client.query('INSERT INTO recipe_ingredients (recipe_id, text, missing, sort_order) VALUES ($1,$2,FALSE,$3)', [recipeId, r.ings[i], i]);
+      }
+      for (let i = 0; i < r.steps.length; i++) {
+        await client.query('INSERT INTO recipe_steps (recipe_id, step_number, text) VALUES ($1,$2,$3)', [recipeId, i + 1, r.steps[i]]);
+      }
+    }
 
-  const insertTotal = db.prepare(`INSERT INTO shopping_list_totals (period, amount) VALUES (?,?)`);
-  const totalsTx = db.transaction(() => {
-    insertTotal.run('3 días', '$19.40');
-    insertTotal.run('1 semana', '$47.80');
-    insertTotal.run('2 semanas', '$89.50');
-    insertTotal.run('3 semanas', '$128.00');
-    insertTotal.run('1 mes', '$162.00');
-  });
-  totalsTx();
+    const plan = [
+      ['lunes', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Opcional — rápido y contundente', true],
+      ['lunes', 'Almuerzo', 'Pollo frito + ensalada (lechuga, tomate, aguacate) + choclos', 'Sin arroz · 3 cuerpos en el plato', false],
+      ['lunes', 'Merienda', 'Atún + cebolla + tomate + limón', 'Sin cocción', false],
+      ['martes', 'Desayuno', 'Batido o sándwiches — opcional', 'Según el tiempo disponible', true],
+      ['martes', 'Almuerzo', 'Bistec de res frito + arroz + menestra', 'Freír bistec con sal y ajo', false],
+      ['martes', 'Merienda', 'Pollo frito + ensalada lechuga y tomate', 'Freír presas', false],
+      ['miercoles', 'Desayuno', 'Opcional', '', true],
+      ['miercoles', 'Almuerzo', 'Hígado frito (solo sal, sin cebolla) + arroz + menestra', 'Úsalo hoy — lleva 2 días', false],
+      ['miercoles', 'Merienda', 'Sardinas en tomate + arroz + medio aguacate', 'Abrir lata', false],
+      ['jueves', 'Desayuno', 'Opcional', '', true],
+      ['jueves', 'Almuerzo', 'Pescado frito + ensalada + limón', 'Freír con sal y ajo', false],
+      ['jueves', 'Merienda', 'Puré de papas + arroz + carne frita', 'Puré siempre con arroz', false],
+      ['viernes', 'Desayuno', 'Opcional', '', true],
+      ['viernes', 'Almuerzo', 'Camarones fritos al ajo + arroz + ensalada tomate', '3 min por lado', false],
+      ['viernes', 'Merienda', 'Carne en trozos + tomate + pimiento + arroz', 'Salsita rápida', false],
+      ['sabado', 'Desayuno', 'Opcional', '', true],
+      ['sabado', 'Almuerzo', 'Chancho frito + arroz + menestra + ensalada', '', false],
+      ['sabado', 'Merienda', 'Arroz + tortilla de huevo + salchicha', '', false],
+      ['domingo', 'Desayuno', 'Encebollado comprado (dosis doble) + chifle + pan', 'No preparar — comprar hecho', false],
+      ['domingo', 'Almuerzo', 'Pollo frito + arroz + puré de papas + ensalada', 'Puré siempre con arroz', false],
+      ['domingo', 'Merienda', 'Sándwiches triples queso crema + jamón', 'Sin cocción', false],
+    ];
+    for (let i = 0; i < plan.length; i++) {
+      const [weekday, meal_type, title, detail, optional] = plan[i];
+      await client.query(
+        'INSERT INTO meal_plan (weekday, meal_type, title, detail, optional, sort_order) VALUES ($1,$2,$3,$4,$5,$6)',
+        [weekday, meal_type, title, detail, optional, i]
+      );
+    }
 
-  const insertItem = db.prepare(`INSERT INTO shopping_list_items (period, group_label, name, qty, checked, prices, sort_order) VALUES (?,?,?,?,?,?,?)`);
-  const items = [
-    ['Urgentes', 'Pan molde integral', 1, 0, [{ store: 'Supermaxi', price: '$1.45', best: true }, { store: 'Mi Comisariato', price: '$1.60' }]],
-    ['Urgentes', 'Leche entera', 2, 0, [{ store: 'Mi Comisariato', price: '$1.05', best: true }, { store: 'Supermaxi', price: '$1.20' }, { store: 'Tía', price: '$1.15' }]],
-    ['Carnes', 'Camarones pelados', 1, 0, [{ store: 'Puerto Durán', price: '$3.80/lb', best: true }, { store: 'Supermaxi', price: '$5.50/lb' }]],
-    ['Carnes', 'Chuleta de chancho', 3, 0, [{ store: 'Mercado Urdesa', price: '$2.10', best: true }, { store: 'Supermaxi', price: '$2.90' }]],
-    ['Carnes', 'Aguacate', 4, 1, [{ store: 'Mercado Urdesa', price: '$0.30/un', best: true }]],
-    ['Desayuno', 'Guineos para batido', 8, 0, [{ store: 'Mercado Urdesa', price: '$0.15/un', best: true }, { store: 'Supermaxi', price: '$0.25/un' }]],
-    ['Desayuno', 'Queso crema', 2, 0, [{ store: 'Mi Comisariato', price: '$2.30', best: true }, { store: 'Supermaxi', price: '$2.70' }]],
-  ];
-  const insertItemsTx = db.transaction((rows) => rows.forEach((r, i) => insertItem.run('1 semana', r[0], r[1], r[2], r[3], JSON.stringify(r[4]), i)));
-  insertItemsTx(items);
+    const totals = [
+      ['3 días', '$19.40'], ['1 semana', '$47.80'], ['2 semanas', '$89.50'], ['3 semanas', '$128.00'], ['1 mes', '$162.00'],
+    ];
+    for (const [period, amount] of totals) {
+      await client.query('INSERT INTO shopping_list_totals (period, amount) VALUES ($1,$2)', [period, amount]);
+    }
 
-  const insertDisc = db.prepare(`INSERT INTO discoveries (title, source, link, meta, rating, gradient) VALUES (?,?,?,?,?,?)`);
-  const discTx = db.transaction(() => {
-    insertDisc.run('Marisquería El Puerto — camarones', 'Instagram', 'https://instagram.com', 'Urdesa · Marisco fresco', 0, 'linear-gradient(135deg,#D5EDCC,#4A8F68)');
-    insertDisc.run('Encebollado del Malecón — dosis doble', 'Facebook', 'https://facebook.com', 'Centro · desde 5am', 4, 'linear-gradient(135deg,#EAD9C8,#8F6A4A)');
-    insertDisc.run('Mercado Urdesa — frescos directo', 'Instagram', 'https://instagram.com', 'Sáb 7am–1pm', 3, 'linear-gradient(135deg,#DAE8D4,#4A7856)');
-  });
-  discTx();
+    const items = [
+      ['Urgentes', 'Pan molde integral', 1, false, [{ store: 'Supermaxi', price: '$1.45', best: true }, { store: 'Mi Comisariato', price: '$1.60' }]],
+      ['Urgentes', 'Leche entera', 2, false, [{ store: 'Mi Comisariato', price: '$1.05', best: true }, { store: 'Supermaxi', price: '$1.20' }, { store: 'Tía', price: '$1.15' }]],
+      ['Carnes', 'Camarones pelados', 1, false, [{ store: 'Puerto Durán', price: '$3.80/lb', best: true }, { store: 'Supermaxi', price: '$5.50/lb' }]],
+      ['Carnes', 'Chuleta de chancho', 3, false, [{ store: 'Mercado Urdesa', price: '$2.10', best: true }, { store: 'Supermaxi', price: '$2.90' }]],
+      ['Carnes', 'Aguacate', 4, true, [{ store: 'Mercado Urdesa', price: '$0.30/un', best: true }]],
+      ['Desayuno', 'Guineos para batido', 8, false, [{ store: 'Mercado Urdesa', price: '$0.15/un', best: true }, { store: 'Supermaxi', price: '$0.25/un' }]],
+      ['Desayuno', 'Queso crema', 2, false, [{ store: 'Mi Comisariato', price: '$2.30', best: true }, { store: 'Supermaxi', price: '$2.70' }]],
+    ];
+    for (let i = 0; i < items.length; i++) {
+      const [group_label, name, qty, checked, prices] = items[i];
+      await client.query(
+        'INSERT INTO shopping_list_items (period, group_label, name, qty, checked, prices, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        ['1 semana', group_label, name, qty, checked, JSON.stringify(prices), i]
+      );
+    }
 
-  const today = new Date().toISOString().slice(0, 10);
-  db.prepare(`INSERT INTO nutrition_log (log_date, calories, calories_target, protein, protein_target, carbs, carbs_target, fat, fat_target) VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(today, 2100, 2800, 95, 140, 190, 300, 52, 80);
+    const discoveries = [
+      ['Marisquería El Puerto — camarones', 'Instagram', 'https://instagram.com', 'Urdesa · Marisco fresco', 0, 'linear-gradient(135deg,#D5EDCC,#4A8F68)'],
+      ['Encebollado del Malecón — dosis doble', 'Facebook', 'https://facebook.com', 'Centro · desde 5am', 4, 'linear-gradient(135deg,#EAD9C8,#8F6A4A)'],
+      ['Mercado Urdesa — frescos directo', 'Instagram', 'https://instagram.com', 'Sáb 7am–1pm', 3, 'linear-gradient(135deg,#DAE8D4,#4A7856)'],
+    ];
+    for (const d of discoveries) {
+      await client.query('INSERT INTO discoveries (title, source, link, meta, rating, gradient) VALUES ($1,$2,$3,$4,$5,$6)', d);
+    }
 
-  console.log('Base de datos poblada con los datos de Gus.');
+    const todayStr = new Date().toISOString().slice(0, 10);
+    await client.query(
+      `INSERT INTO nutrition_log (log_date, calories, calories_target, protein, protein_target, carbs, carbs_target, fat, fat_target)
+       VALUES ($1,2100,2800,95,140,190,300,52,80)`,
+      [todayStr]
+    );
+
+    await client.query('COMMIT');
+    console.log('Base de datos poblada con los datos de Gus.');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+    await pool.end();
+  }
 }
 
-seed();
+seed().catch((err) => {
+  console.error('Error poblando la base de datos:', err);
+  process.exit(1);
+});
