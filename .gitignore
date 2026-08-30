@@ -8,3 +8,10 @@ server/data/*.db-shm
 server/data/*.db-wal
 *.log
 .DS_Store
+
+# Frontend compilado dentro del backend PHP (se genera con `npm run build`)
+php/public/assets/
+php/public/index.html
+php/public/vite.svg
+php/public/favicon*
+

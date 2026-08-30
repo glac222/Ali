@@ -58,68 +58,35 @@ El servidor Express (`server/src/index.js`) detecta automáticamente `client/dis
 
 ## Desplegar en Hostinger
 
-La estrategia depende de tu tipo de plan. Verifica en **hPanel → tu sitio → Avanzado** si existe la opción **"Configurar app Node.js"**, o si tienes un plan **VPS** (con acceso SSH/root).
+El plan **Premium Web Hosting** (hosting compartido, sin SSH ni Node.js) no puede
+correr el backend Express/SQLite de `server/`. Para eso está **`php/`**: un port
+1:1 del backend a **PHP puro + MariaDB**, el mismo stack que ya funciona para Gus.
 
-### Opción A — Hostinger VPS (recomendada, más control)
+- Frontend: React compilado (`client/`), servido como estático.
+- Backend: `php/` (PHP 8, PDO, cURL — sin Composer, sin frameworks).
+- Se despliega en el subdominio `ali.calimundo.com`.
 
-1. Conéctate por SSH y clona el repo en el servidor.
-2. Instala Node.js (v20+) si no está: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs`.
-3. Instala dependencias y compila el frontend:
-   ```bash
-   cd server && npm install --omit=dev && npm run seed
-   cd ../client && npm install && npm run build
-   ```
-4. Configura `server/.env` con tu `DEEPSEEK_API_KEY` y el `PORT` que quieras usar internamente (ej. 4000).
-5. Corre el servidor con un gestor de procesos para que sobreviva reinicios:
-   ```bash
-   npm install -g pm2
-   cd ../server && pm2 start src/index.js --name mi-cocina
-   pm2 save && pm2 startup
-   ```
-6. Configura Nginx como proxy inverso hacia el puerto interno (Hostinger VPS suele traer Nginx o puedes instalarlo):
-   ```nginx
-   server {
-     listen 80;
-     server_name tu-dominio.com;
-     location / {
-       proxy_pass http://localhost:4000;
-       proxy_http_version 1.1;
-       proxy_set_header Upgrade $http_upgrade;
-       proxy_set_header Connection 'upgrade';
-       proxy_set_header Host $host;
-       proxy_cache_bypass $http_upgrade;
-     }
-   }
-   ```
-7. Activa SSL gratis con Certbot: `sudo certbot --nginx -d tu-dominio.com`.
+👉 **Guía paso a paso: [`php/DEPLOY.md`](php/DEPLOY.md)**
 
-Con esto, `https://tu-dominio.com` sirve la app completa (frontend + API + chat) desde un solo servidor.
+Resumen:
 
-### Opción B — Hosting Web con "Node.js App" (hPanel)
+1. Crear subdominio `ali` con document root `public_html/ali/public`.
+2. Crear base MariaDB en hPanel.
+3. `cd client && npm run build`.
+4. Subir `php/public/*` + `client/dist/*` al docroot; `php/src/` y `php/db/` un
+   nivel arriba.
+5. Crear `php/.env` en el servidor (credenciales de la base + `DEEPSEEK_API_KEY`
+   + `ADMIN_TOKEN`).
+6. Visitar `…/api/admin/migrate?token=…` y `…/api/admin/seed?token=…` una vez.
 
-1. En hPanel: **Sitios web → tu dominio → Avanzado → Configurar app Node.js**.
-2. Sube el proyecto completo (o conéctalo por Git si esa opción está disponible) y define el **directorio de la app** como `server/`.
-3. Define el **archivo de arranque** como `src/index.js`.
-4. En "Variables de entorno" de esa herramienta, agrega `DEEPSEEK_API_KEY` (y `PORT` si hPanel lo requiere — normalmente Passenger asigna el puerto automáticamente vía `process.env.PORT`, que el código ya respeta).
-5. Antes de iniciar la app, corre desde la terminal de hPanel (o vía SSH si el plan lo permite):
-   ```bash
-   cd server && npm install && npm run seed
-   cd ../client && npm install && npm run build
-   ```
-6. Reinicia la app Node desde hPanel. El propio Express servirá `client/dist` automáticamente.
-
-**Nota:** `better-sqlite3` es un módulo nativo — `npm install` debe ejecutarse en el propio servidor de Hostinger (no subir `node_modules` desde tu máquina), para que compile correctamente para esa arquitectura.
-
-### Opción C — Hosting compartido sin soporte Node.js
-
-Si tu plan es básico (solo PHP/estático), Hostinger no puede correr el backend directamente. En ese caso:
-
-1. Sube solo `client/dist` (después de `npm run build`) a `public_html/` vía el Administrador de Archivos o FTP — eso sirve el frontend como sitio estático.
-2. Despliega `server/` en un servicio gratuito/económico que sí soporte Node.js persistente (ej. Railway, Render, Fly.io).
-3. Define `VITE_API_URL` con la URL de ese backend antes de compilar el frontend (`client/.env`), y vuelve a correr `npm run build`.
-4. Asegúrate de que el backend permita CORS desde tu dominio de Hostinger (ya está habilitado globalmente vía `cors()` en `server/src/index.js`).
+El `server/` en Node sigue sirviendo para desarrollo local y para un eventual
+despliegue en VPS o en "Node.js App" de planes Business/Cloud.
 
 ## Notas sobre los datos
 
-- Todo el estado (despensa, recetas, plan, lista de compras, calificaciones, memoria del chat) vive en `server/data/mi-cocina.db` (SQLite). Haz backup de ese archivo periódicamente si lo despliegas en producción.
-- `npm run seed` solo puebla la base si está vacía; usa `npm run seed -- --force` para reiniciar todos los datos a los valores de ejemplo de Gus.
+- En el port PHP todo el estado vive en **MariaDB**. Backup desde hPanel →
+  phpMyAdmin → Exportar, o con los backups automáticos de Hostinger.
+- En el `server/` Node, el estado vive en `server/data/mi-cocina.db` (SQLite);
+  `npm run seed` solo puebla si está vacía, `npm run seed -- --force` reinicia.
+- El endpoint `/api/admin/seed` (PHP) es el equivalente: solo puebla si la base
+  está vacía; `?force=1` reinicia a los datos de ejemplo de Gus.

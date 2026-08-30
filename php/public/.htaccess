@@ -1,0 +1,40 @@
+# Mi Cocina - ali.calimundo.com (Hostinger / LiteSpeed / Apache 2.4)
+# Sirve tanto si esta carpeta es el document root (layout A)
+# como si todo esta plano en la carpeta del subdominio (layout B).
+
+DirectoryIndex index.php index.html
+Options -Indexes
+
+# --- Seguridad: nunca servir codigo ni credenciales ----------------------
+<FilesMatch "\.(env|sql|md|ini|log)$">
+  Require all denied
+</FilesMatch>
+RedirectMatch 403 (?i)^/?(src|db)(/|$)
+RedirectMatch 403 (?i)^/?\.env
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # La API siempre pasa por el front controller PHP.
+  RewriteRule ^api(/.*)?$ index.php [L,QSA]
+
+  # Archivos y carpetas reales (assets compilados) se sirven tal cual.
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Cualquier otra ruta -> SPA React.
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# --- Cache de assets con hash de Vite ----------------------------------
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?|png|jpg|jpeg|gif|svg|webp)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
+
+# --- Comprimir texto -------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
+</IfModule>
