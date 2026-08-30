@@ -683,10 +683,24 @@ function route_admin(string $method, ?string $action): void
     }
 
     if ($action === 'recalc') {
-        // Rellena qty_value/qty_unit/min_qty de la despensa desde el texto.
-        // Correr una vez tras desplegar el arnés sobre una base ya poblada.
+        // Adapta una base YA poblada al arnés de Ali, sin borrar nada:
+        //  - rellena qty_value/qty_unit/min_qty de la despensa desde el texto
+        //  - siembra el perfil del hogar (assistant_prefs) por UPSERT
         $n = pantry_backfill_all();
-        json_out(['ok' => true, 'action' => 'recalc', 'productos' => $n, 'message' => 'Cantidades numéricas recalculadas.']);
+        $data = require APP_ROOT . '/db/seed_data.php';
+        $prefs = 0;
+        foreach (($data['prefs'] ?? []) as $k => $v) {
+            q_exec(
+                'INSERT INTO assistant_prefs (pref_key, pref_value) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE pref_value = VALUES(pref_value), updated_at = NOW()',
+                [$k, $v]
+            );
+            $prefs++;
+        }
+        json_out([
+            'ok' => true, 'action' => 'recalc', 'productos' => $n, 'preferencias' => $prefs,
+            'message' => 'Cantidades recalculadas y perfil del hogar sembrado (sin borrar datos).',
+        ]);
     }
 
     fail('Acción admin desconocida. Usa /api/admin/migrate | seed | recalc', 404);
