@@ -234,6 +234,13 @@ body{background:var(--paper);color:var(--ink);font-family:'Manrope',sans-serif;-
 .bubble.user{align-self:flex-end;background:var(--g7);color:var(--w);border-bottom-right-radius:3px;}
 .bubble.ai{align-self:flex-start;background:var(--paper);border:1px solid var(--line);border-bottom-left-radius:3px;}
 .bubble.loading{align-self:flex-start;background:var(--paper);border:1px solid var(--line);color:var(--faint);font-style:italic;}
+.cp-msg{display:flex;flex-direction:column;gap:4px;}
+.cp-msg.user{align-items:flex-end;}
+.cp-msg.ai{align-items:flex-start;}
+.cp-actions{display:flex;flex-direction:column;gap:3px;max-width:84%;}
+.cp-action{font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:var(--g7);background:var(--g1,#EEF4EF);border:1px solid var(--line);border-radius:7px;padding:3px 7px;line-height:1.4;}
+.cp-quick{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;}
+.cp-quick .chip{cursor:pointer;}
 .cp-input{display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line);}
 .cp-input input{flex:1;border:1px solid var(--line);border-radius:100px;padding:8px 11px;font-size:11.5px;font-family:'Manrope';outline:none;background:var(--paper);}
 .cp-send{width:32px;height:32px;border-radius:50%;background:var(--g7);color:var(--w);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;}

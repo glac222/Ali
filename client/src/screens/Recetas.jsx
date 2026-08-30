@@ -3,6 +3,10 @@ import { api } from '../api.js';
 
 const TABS = ['Lo mío', 'Con lo que hay', 'Descubrir'];
 
+function missingCount(r) {
+  return (r.ingredients || []).filter((i) => i.missing).length;
+}
+
 export default function Recetas({ onOpenChat }) {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,6 +18,14 @@ export default function Recetas({ onOpenChat }) {
   }, []);
 
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
+
+  // "Con lo que hay" = se puede cocinar ya (0 ingredientes faltantes).
+  // "Descubrir" = falta comprar algo para poder hacerla.
+  const shown = recipes.filter((r) => {
+    if (tab === 'Con lo que hay') return missingCount(r) === 0;
+    if (tab === 'Descubrir') return missingCount(r) > 0;
+    return true;
+  });
 
   return (
     <div className="screen active">
@@ -38,18 +50,31 @@ export default function Recetas({ onOpenChat }) {
         </div>
       </div>
 
-      {recipes.map((r) => (
-        <div className="recipe-card" key={r.id} onClick={() => setOpenRecipe(r)}>
-          <div className="rsw" style={{ background: r.gradient }} />
-          <div className="rb">
-            <div className="rtitle">{r.title}</div>
-            <div className="rdesc">{r.description}</div>
-            <div className="rtags">
-              {r.tags.map((t, i) => <span key={i} className={'pill' + (i === 1 ? ' am' : '')}>{t}</span>)}
+      {shown.map((r) => {
+        const miss = missingCount(r);
+        return (
+          <div className="recipe-card" key={r.id} onClick={() => setOpenRecipe(r)}>
+            <div className="rsw" style={{ background: r.gradient }} />
+            <div className="rb">
+              <div className="rtitle">{r.title}</div>
+              <div className="rdesc">{r.description}</div>
+              <div className="rtags">
+                {r.tags.map((t, i) => <span key={i} className={'pill' + (i === 1 ? ' am' : '')}>{t}</span>)}
+                {miss > 0 && <span className="pill am">Falta{miss > 1 ? `n ${miss}` : ' 1'}</span>}
+              </div>
             </div>
           </div>
+        );
+      })}
+      {shown.length === 0 && (
+        <div className="loading-msg">
+          {tab === 'Con lo que hay'
+            ? 'Ninguna receta guardada se puede hacer solo con lo que hay ahora.'
+            : tab === 'Descubrir'
+              ? 'Tienes lo necesario para todas tus recetas guardadas. Pídele ideas nuevas a Ali.'
+              : 'Sin recetas todavía.'}
         </div>
-      ))}
+      )}
 
       <div className={'overlay' + (openRecipe ? ' active' : '')}>
         {openRecipe && (

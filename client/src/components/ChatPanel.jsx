@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 
-const GREETING = { role: 'ai', content: 'Hola Gus. Puedo cambiar tu plan, anotar lo que comiste, sugerir qué comer con lo que tienes, o generar la lista de compras. ¿En qué te ayudo?' };
+const GREETING = {
+  role: 'ai',
+  content:
+    'Hola, soy Ali. Manejo tu despensa, comidas, plan y lista de compras. Dime qué comiste y lo descuento, pregúntame qué cocinar con lo que tienes, o pídeme la lista de la semana.',
+};
 
-export default function ChatPanel({ open, onClose, autoSend, configured, onMemorySaved }) {
+const QUICK = [
+  '¿Qué cocino hoy con lo que tengo?',
+  '¿Qué se está por vencer?',
+  'Arma la lista de compras de la semana',
+  'Muéstrame la despensa',
+];
+
+export default function ChatPanel({ open, onClose, autoSend, configured, onActions }) {
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -28,12 +39,12 @@ export default function ChatPanel({ open, onClose, autoSend, configured, onMemor
     historyRef.current = [...historyRef.current, { role: 'user', content: text }];
     setSending(true);
     try {
-      const { reply, savedMemories } = await api.chat.send(text, historyRef.current.slice(-12));
-      setMessages((m) => [...m, { role: 'ai', content: reply }]);
+      const { reply, actions } = await api.chat.send(text, historyRef.current.slice(-12));
+      setMessages((m) => [...m, { role: 'ai', content: reply, actions: actions || [] }]);
       historyRef.current = [...historyRef.current, { role: 'assistant', content: reply }];
-      if (savedMemories?.length && onMemorySaved) onMemorySaved();
+      if (actions && actions.length && onActions) onActions(actions);
     } catch (err) {
-      setMessages((m) => [...m, { role: 'ai', content: 'Error de conexión con el servidor. Intenta de nuevo.' }]);
+      setMessages((m) => [...m, { role: 'ai', content: 'No pude conectar con el servidor. Intenta de nuevo.' }]);
     } finally {
       setSending(false);
     }
@@ -46,13 +57,15 @@ export default function ChatPanel({ open, onClose, autoSend, configured, onMemor
     sendMessage(t);
   }
 
+  const showQuick = messages.length <= 1 && !sending;
+
   return (
     <div className={'chat-panel' + (open ? ' active' : '')}>
       <div className="cp-head">
         <div>
-          <div className="cp-title">Chat IA</div>
+          <div className="cp-title">Ali</div>
           <div className={'cp-sub' + (configured ? '' : ' sim')}>
-            ● DeepSeek · {configured ? 'conectado' : 'modo simulado'}
+            ● {configured ? 'asistente activo' : 'modo simulado (sin IA)'}
           </div>
         </div>
         <button className="cp-close" onClick={onClose}>
@@ -61,14 +74,30 @@ export default function ChatPanel({ open, onClose, autoSend, configured, onMemor
       </div>
       <div className="cp-body" ref={bodyRef}>
         {messages.map((m, i) => (
-          <div key={i} className={'bubble ' + m.role}>{m.content}</div>
+          <div key={i} className={'cp-msg ' + m.role}>
+            <div className={'bubble ' + m.role}>{m.content}</div>
+            {m.actions && m.actions.length > 0 && (
+              <div className="cp-actions">
+                {m.actions.map((a, j) => (
+                  <div key={j} className="cp-action">✓ {a.resumen}</div>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
-        {sending && <div className="bubble loading">Pensando...</div>}
+        {sending && <div className="bubble loading">Ali está trabajando…</div>}
+        {showQuick && (
+          <div className="cp-quick">
+            {QUICK.map((q) => (
+              <button key={q} className="chip" onClick={() => sendMessage(q)}>{q}</button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="cp-input">
         <input
           type="text"
-          placeholder="Escríbeme..."
+          placeholder="Dime qué comiste, qué compraste, qué cambiar..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}

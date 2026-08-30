@@ -16,6 +16,7 @@ export default function App() {
   const [autoSend, setAutoSend] = useState(null);
   const [configured, setConfigured] = useState(false);
   const [toast, setToast] = useState('');
+  const [dataVersion, setDataVersion] = useState(0);
 
   useEffect(() => {
     api.chat.status().then((s) => setConfigured(s.configured)).catch(() => {});
@@ -36,25 +37,34 @@ export default function App() {
     setChatOpen(false);
   }
 
+  // Ali cambió datos por su cuenta: refresca la pantalla activa y avisa.
+  function handleAliActions(actions) {
+    if (!actions || !actions.length) return;
+    setDataVersion((v) => v + 1);
+    showToast(actions.length === 1 ? `✓ ${actions[0].resumen}` : `✓ Ali hizo ${actions.length} cambios`);
+  }
+
   return (
     <>
       <div className="device">
         <Toast message={toast} />
 
-        {screen === 'inicio' && (
-          <Inicio onGoToPantry={() => changeScreen('despensa')} onGoToPlan={() => changeScreen('plan')} onOpenChat={openChat} />
-        )}
-        {screen === 'despensa' && <Despensa onToast={showToast} />}
-        {screen === 'lista' && <Lista />}
-        {screen === 'recetas' && <Recetas onOpenChat={openChat} />}
-        {screen === 'plan' && <Plan />}
+        <div key={dataVersion} style={{ display: 'contents' }}>
+          {screen === 'inicio' && (
+            <Inicio onGoToPantry={() => changeScreen('despensa')} onGoToPlan={() => changeScreen('plan')} onOpenChat={openChat} />
+          )}
+          {screen === 'despensa' && <Despensa onToast={showToast} />}
+          {screen === 'lista' && <Lista />}
+          {screen === 'recetas' && <Recetas onOpenChat={openChat} />}
+          {screen === 'plan' && <Plan onToast={showToast} onGoToList={() => changeScreen('lista')} />}
+        </div>
 
         <ChatPanel
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           autoSend={autoSend}
           configured={configured}
-          onMemorySaved={() => showToast('📝 Guardado en memoria')}
+          onActions={handleAliActions}
         />
 
         <div className="bottom-zone">

@@ -46,6 +46,11 @@ function env(string $key, ?string $default = null): ?string
 
 load_env(APP_ROOT . '/.env');
 
+// Zona horaria fija: la app es de Gus en Guayaquil (UTC-5, sin horario de verano).
+// Sin esto, date('Y-m-d') de PHP (suele ser UTC en hosting compartido) y el
+// CURDATE()/NOW() de MariaDB se desincronizan y "hoy" sale mal varias horas al día.
+date_default_timezone_set(env('APP_TZ', 'America/Guayaquil'));
+
 // --- Errores como JSON, nunca HTML de PHP ----------------------------------
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
@@ -81,6 +86,9 @@ function db(): PDO
         PDO::ATTR_EMULATE_PREPARES   => false,
         PDO::ATTR_STRINGIFY_FETCHES  => false,
     ]);
+    // La sesión SQL usa el mismo offset que PHP (ver date_default_timezone_set
+    // arriba) para que CURDATE()/NOW() y date('Y-m-d') coincidan siempre.
+    $pdo->exec("SET time_zone = '" . env('DB_TZ', '-05:00') . "'");
     return $pdo;
 }
 

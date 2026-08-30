@@ -102,3 +102,64 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content    TEXT NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ===========================================================================
+-- ARNÉS DE ALI (el asistente): cantidades numéricas, comidas registradas,
+-- perfil/preferencias del hogar y bitácora de acciones de la IA.
+-- ===========================================================================
+
+-- Cantidad numérica opcional en la despensa. El texto `quantity` sigue siendo
+-- lo que se muestra; estas columnas permiten restar con precisión.
+-- MariaDB 10.5 soporta ADD COLUMN IF NOT EXISTS (correrlo dos veces no rompe).
+ALTER TABLE pantry_items ADD COLUMN IF NOT EXISTS qty_value DECIMAL(10,2) NULL;
+ALTER TABLE pantry_items ADD COLUMN IF NOT EXISTS qty_unit  VARCHAR(24) NOT NULL DEFAULT '';
+ALTER TABLE pantry_items ADD COLUMN IF NOT EXISTS min_qty   DECIMAL(10,2) NULL;
+
+-- Origen de cada ítem de la lista de compras:
+--   manual = lo puso una persona | scan = vino del escáner | auto = lo generó
+--   el botón "Generar lista" desde el plan/despensa | ia = lo agregó Ali.
+-- "Generar lista" solo borra y recrea los 'auto'; nunca toca lo manual.
+ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual';
+
+-- Comidas registradas (lo que Gus efectivamente comió o tiene planificado).
+-- Distinto de meal_plan, que es la plantilla semanal.
+CREATE TABLE IF NOT EXISTS meals (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  log_date   DATE        NOT NULL,
+  meal_type  VARCHAR(40) NOT NULL DEFAULT 'almuerzo',
+  name       TEXT        NOT NULL,
+  servings   INT         NOT NULL DEFAULT 1,
+  place      VARCHAR(20) NOT NULL DEFAULT 'casa',      -- casa | fuera | comprado
+  status     VARCHAR(20) NOT NULL DEFAULT 'consumida', -- planificada | consumida
+  notes      VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Ingredientes usados en una comida registrada (para trazar el descuento).
+CREATE TABLE IF NOT EXISTS meal_items (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  meal_id        INT NOT NULL,
+  pantry_item_id INT NULL,
+  name           VARCHAR(255) NOT NULL,
+  qty_text       VARCHAR(120) NOT NULL DEFAULT '',
+  qty_value      DECIMAL(10,2) NULL,
+  qty_unit       VARCHAR(24)  NOT NULL DEFAULT '',
+  deducted       TINYINT NOT NULL DEFAULT 0,
+  CONSTRAINT fk_mi_meal FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Perfil del hogar y preferencias que hacen mejores las sugerencias.
+CREATE TABLE IF NOT EXISTS assistant_prefs (
+  pref_key   VARCHAR(80) NOT NULL PRIMARY KEY,
+  pref_value TEXT        NOT NULL,
+  updated_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Bitácora de todo lo que Ali cambió por su cuenta (auditoría + seguimiento).
+CREATE TABLE IF NOT EXISTS assistant_events (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  tool       VARCHAR(60)  NOT NULL,
+  summary    VARCHAR(255) NOT NULL DEFAULT '',
+  payload    TEXT         NOT NULL,
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

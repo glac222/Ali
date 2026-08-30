@@ -136,4 +136,25 @@ return [
 
     // nutrition_log de hoy: [calories, calories_target, protein, protein_target, carbs, carbs_target, fat, fat_target]
     'nutrition_today' => [2100, 2800, 95, 140, 190, 300, 52, 80],
+
+    // Perfil del hogar y preferencias que usa Ali (assistant_prefs).
+    // Se hace UPSERT: reseedar no borra las preferencias que el usuario cambió,
+    // pero sí restablece estas claves base.
+    'prefs' => [
+        'nombre_usuario'        => 'Gus',
+        'ciudad'                => 'Guayaquil, Ecuador',
+        'personas'              => '1',
+        'porciones_por_comida'  => '3',
+        'gramos_por_porcion'    => '150',
+        'objetivos'             => 'comer suficiente proteína, cocinar rápido, no desperdiciar, aprovechar lo que vence',
+        'tiempo_cocina'         => '20-30 min entre semana',
+        'nivel_picante'         => 'bajo',
+        'tecnicas_permitidas'   => 'freír, hervir, abrir latas (sin horno, sin sopas, sin recetas complicadas)',
+        'electrodomesticos'     => 'sartén, olla, licuadora',
+        'alergias'              => 'ninguna registrada',
+        'no_le_gusta'           => 'cebolla encima del hígado; patacones en casa; menestra y ensalada en el mismo plato',
+        'supermercados'         => 'Supermaxi, Mi Comisariato, Mercado Urdesa, Puerto Durán, Tía',
+        'desayuno'              => 'opcional; batido de guineo + sándwiches cuando hay prisa',
+        'reglas_cocina'         => "1. Solo freír, hervir o abrir latas — sin sopas, sin horno, sin recetas complicadas.\n2. Porciones triples — no lo cuestiones.\n3. El arroz NO es obligatorio: puede ser proteína + ensalada + otro carbohidrato (choclo, puré).\n4. Encebollado: solo domingos al desayuno, y comprado hecho (no preparar).\n5. El puré siempre va con arroz, nunca solo.\n6. Menestra y ensalada no van juntas en el mismo plato.\n7. Sardinas nunca en el desayuno.\n8. Hígado sin cebolla encima.\n9. Sin patacones en casa (toma tiempo).\n10. El desayuno es OPCIONAL — batido + sándwiches es una opción rápida, no una obligación.",
+    ],
 ];

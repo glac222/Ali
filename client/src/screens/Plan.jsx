@@ -28,17 +28,32 @@ function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-export default function Plan() {
+export default function Plan({ onToast, onGoToList }) {
   const today = new Date();
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(today);
   const [planByDay, setPlanByDay] = useState({});
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('1 semana');
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     api.plan.all().then(setPlanByDay).finally(() => setLoading(false));
   }, []);
+
+  async function generarLista() {
+    if (generating) return;
+    setGenerating(true);
+    try {
+      const r = await api.shoppingList.generate(period);
+      onToast?.(`✓ Lista generada · ${period}: ${r.generated} por reponer`);
+      onGoToList?.();
+    } catch (err) {
+      onToast?.('No se pudo generar la lista');
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   const grid = useMemo(() => buildGrid(cursor.getFullYear(), cursor.getMonth()), [cursor]);
   const selectedWeekday = WEEKDAY_KEYS[selected.getDay()];
@@ -94,7 +109,9 @@ export default function Plan() {
           <button key={p} className={'pb' + (period === p ? ' active' : '')} onClick={() => setPeriod(p)}>{p}</button>
         ))}
       </div>
-      <button className="cta-btn">Generar lista · {period} →</button>
+      <button className="cta-btn" onClick={generarLista} disabled={generating} style={generating ? { opacity: 0.6 } : undefined}>
+        {generating ? 'Generando…' : `Generar lista · ${period} →`}
+      </button>
     </div>
   );
 }

@@ -69,6 +69,22 @@ export default function Despensa({ onToast }) {
     onToast?.('✓ Añadido a despensa');
   }
 
+  async function addScannedToList() {
+    try {
+      await api.shoppingList.create({
+        name: 'Atún Van Camps en agua 142g',
+        group_label: 'Latas y despensa',
+        qty: 1,
+        period: '1 semana',
+        source: 'scan',
+      });
+      setScanOpen(false);
+      onToast?.('✓ Añadido a la lista');
+    } catch (err) {
+      onToast?.('No se pudo añadir a la lista');
+    }
+  }
+
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
 
   return (
@@ -163,7 +179,7 @@ export default function Despensa({ onToast }) {
           <div className="sn">Atún Van Camps en agua 142g</div>
           <div className="sb">7861456300034 · Van Camps</div>
           <div className="scan-acts">
-            <button className="ss" onClick={() => setScanOpen(false)}>+ Lista</button>
+            <button className="ss" onClick={addScannedToList}>+ Lista</button>
             <button className="sp" onClick={addScannedToPantry}>+ Despensa</button>
           </div>
         </div>

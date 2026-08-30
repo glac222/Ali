@@ -48,6 +48,12 @@ function handle_api(string $method, string $path): void
         case 'memory':
             route_memory($method, $r(1));
 
+        case 'meals':
+            route_meals($method, $r(1));
+
+        case 'prefs':
+            route_prefs($method, $r(1));
+
         case 'chat':
             route_chat($method, $r(1));
 
@@ -116,12 +122,65 @@ function route_pantry(string $method, ?string $id): void
 }
 
 // --- recipes ---------------------------------------------------------
+
+/** Condimentos que se asumen siempre en casa: no cuentan como "falta". */
+const RECIPE_STAPLES = ['sal', 'aceite', 'azucar', 'agua', 'limon', 'lima', 'ajo', 'pimienta', 'vinagre', 'comino', 'achiote', 'sazon'];
+
+/** Tokens (≥3 letras) de todos los nombres de la despensa. Cacheado por request. */
+function pantry_name_tokens(): array
+{
+    static $toks = null;
+    if ($toks !== null) {
+        return $toks;
+    }
+    $toks = [];
+    foreach (q_all('SELECT name FROM pantry_items') as $r) {
+        foreach (preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower((string) $r['name'])) ?: [] as $w) {
+            if (mb_strlen($w) >= 3) {
+                $toks[$w] = true;
+            }
+        }
+    }
+    return $toks;
+}
+
+/**
+ * ¿Falta este ingrediente en la despensa? Compara la "cabeza" del texto
+ * ("Pollo — 2 filetes" -> "Pollo") contra los nombres de la despensa.
+ */
+function recipe_ingredient_missing(string $text): bool
+{
+    $head = mb_strtolower(trim((preg_split('/[—:(\-]/u', $text)[0] ?? $text)));
+    $words = array_values(array_filter(
+        preg_split('/[^\p{L}\p{N}]+/u', $head) ?: [],
+        fn($w) => mb_strlen($w) >= 3 && !in_array($w, ALI_STOPWORDS, true)
+    ));
+    if (!$words) {
+        return false;
+    }
+    $pantry = pantry_name_tokens();
+    foreach ($words as $w) {
+        if (in_array($w, RECIPE_STAPLES, true)) {
+            return false;
+        }
+        if (isset($pantry[$w]) || isset($pantry[rtrim($w, 's')]) || isset($pantry[$w . 's'])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function full_recipe(array $row): array
 {
     $ings = q_all('SELECT `text`, missing FROM recipe_ingredients WHERE recipe_id = ? ORDER BY sort_order', [$row['id']]);
     $steps = q_all('SELECT `text` FROM recipe_steps WHERE recipe_id = ? ORDER BY step_number', [$row['id']]);
     $row['tags'] = json_decode((string) $row['tags'], true) ?: [];
-    $row['ingredients'] = array_map(fn($i) => ['text' => $i['text'], 'missing' => as_bool($i['missing'])], $ings);
+    // `missing` se calcula contra la despensa actual (la columna guardada solo
+    // sirve de override manual: si está en 1, se respeta).
+    $row['ingredients'] = array_map(
+        fn($i) => ['text' => $i['text'], 'missing' => as_bool($i['missing']) || recipe_ingredient_missing((string) $i['text'])],
+        $ings
+    );
     $row['steps'] = array_map(fn($s) => $s['text'], $steps);
     return $row;
 }
@@ -270,6 +329,13 @@ function route_shopping_list(string $method, ?string $id): void
         json_out($out ?: (object) []);
     }
 
+    // Genera la lista de forma determinista desde la despensa: cada producto
+    // agotado (re) o bajo mínimo (am) entra a la lista, con la cantidad escalada
+    // según el período. Solo toca los ítems source='auto'; respeta lo manual.
+    if ($method === 'POST' && $id === 'generate') {
+        json_out(shopping_list_generate((string) (body()['period'] ?? '1 semana')));
+    }
+
     if ($method === 'POST' && $id === null) {
         $b = body();
         $name = trim((string) ($b['name'] ?? ''));
@@ -279,7 +345,7 @@ function route_shopping_list(string $method, ?string $id): void
         $period = (string) ($b['period'] ?? '1 semana');
         $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [$period])['m']);
         q_exec(
-            'INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order) VALUES (?,?,?,?,?,?)',
+            'INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order, source) VALUES (?,?,?,?,?,?,?)',
             [
                 $period,
                 (string) ($b['group_label'] ?? ''),
@@ -287,6 +353,7 @@ function route_shopping_list(string $method, ?string $id): void
                 (int) ($b['qty'] ?? 1),
                 json_encode($b['prices'] ?? [], JSON_UNESCAPED_UNICODE),
                 $max + 1,
+                in_array($b['source'] ?? '', ['manual', 'scan', 'auto', 'ia'], true) ? $b['source'] : 'manual',
             ]
         );
         json_out(shopping_item_out(q_one('SELECT * FROM shopping_list_items WHERE id = ?', [last_id()])), 201);
@@ -313,6 +380,85 @@ function route_shopping_list(string $method, ?string $id): void
     }
 
     fail('Método no permitido', 405);
+}
+
+/**
+ * Genera la lista de compras de un período de forma DETERMINISTA (sin IA):
+ * cada producto de la despensa agotado ('re') o bajo mínimo ('am') se agrega
+ * a la lista con la cantidad escalada por el factor del período. Reconstruye
+ * solo los ítems `source='auto'`; nunca toca lo que se puso a mano o por escáner,
+ * y conserva el estado `checked` / `prices` de la generación anterior.
+ */
+function shopping_list_generate(string $period): array
+{
+    $factor = [
+        '3 días' => 0.5, '1 semana' => 1.0, '2 semanas' => 2.0,
+        '3 semanas' => 3.0, '1 mes' => 4.0,
+    ];
+    if (!isset($factor[$period])) {
+        fail('period inválido: ' . $period);
+    }
+    $mult = $factor[$period];
+
+    $groupLabel = [
+        'carnes' => 'Carnes', 'lacteos' => 'Lácteos y pan', 'granos' => 'Granos',
+        'vegetales' => 'Vegetales', 'latas' => 'Latas y despensa',
+    ];
+
+    // Lo que la despensa necesita reponer.
+    $low = q_all("SELECT * FROM pantry_items WHERE status IN ('re', 'am') ORDER BY FIELD(status,'re','am'), category, name");
+
+    // Nombres ya presentes a mano / por escáner: no duplicar.
+    $manual = [];
+    foreach (q_all("SELECT name FROM shopping_list_items WHERE period = ? AND source <> 'auto'", [$period]) as $r) {
+        $manual[mb_strtolower($r['name'])] = true;
+    }
+    // Estado previo de los 'auto' para conservar lo ya marcado / sus precios.
+    $prev = [];
+    foreach (q_all("SELECT name, checked, prices FROM shopping_list_items WHERE period = ? AND source = 'auto'", [$period]) as $r) {
+        $prev[mb_strtolower($r['name'])] = $r;
+    }
+
+    q_exec("DELETE FROM shopping_list_items WHERE period = ? AND source = 'auto'", [$period]);
+
+    $sort = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [$period])['m']);
+    $created = 0;
+    foreach ($low as $p) {
+        $key = mb_strtolower((string) $p['name']);
+        if (isset($manual[$key])) {
+            continue;
+        }
+        // Cantidad base: la brecha hasta el mínimo si la conocemos, si no 1.
+        $base = 1.0;
+        if ($p['min_qty'] !== null && $p['qty_value'] !== null && (float) $p['qty_value'] < (float) $p['min_qty']) {
+            $base = (float) $p['min_qty'] - (float) $p['qty_value'];
+        }
+        $qty = max(1, (int) ceil($base * $mult));
+        $old = $prev[$key] ?? null;
+        q_exec(
+            "INSERT INTO shopping_list_items (period, group_label, name, qty, checked, prices, sort_order, source)
+             VALUES (?,?,?,?,?,?,?, 'auto')",
+            [
+                $period,
+                $groupLabel[$p['category']] ?? 'Otros',
+                $p['name'],
+                $qty,
+                $old ? (int) $old['checked'] : 0,
+                $old ? (string) $old['prices'] : '[]',
+                ++$sort,
+            ]
+        );
+        $created++;
+    }
+
+    $rows = q_all('SELECT * FROM shopping_list_items WHERE period = ? ORDER BY sort_order', [$period]);
+    $total = q_one('SELECT amount FROM shopping_list_totals WHERE period = ?', [$period]);
+    return [
+        'period' => $period,
+        'total' => $total ? $total['amount'] : null,
+        'generated' => $created,
+        'items' => array_map('shopping_item_out', $rows),
+    ];
 }
 
 // --- discoveries ---------------------------------------------------
@@ -414,7 +560,62 @@ function route_memory(string $method, ?string $id): void
     fail('Método no permitido', 405);
 }
 
-// --- chat ----------------------------------------------------
+// --- meals: comidas registradas (distinto de meal_plan) -----------
+function route_meals(string $method, ?string $id): void
+{
+    if ($method === 'GET' && $id === null) {
+        $date = (string) ($_GET['date'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $rows = q_all('SELECT * FROM meals WHERE log_date = ? ORDER BY id', [$date]);
+        } else {
+            $rows = q_all('SELECT * FROM meals ORDER BY log_date DESC, id DESC LIMIT 60');
+        }
+        foreach ($rows as &$m) {
+            $m['items'] = q_all('SELECT name, qty_text, deducted FROM meal_items WHERE meal_id = ? ORDER BY id', [(int) $m['id']]);
+        }
+        json_out($rows);
+    }
+
+    if ($method === 'GET' && $id === 'today') {
+        json_out(q_all('SELECT * FROM meals WHERE log_date = CURDATE() ORDER BY id'));
+    }
+
+    if ($method === 'DELETE' && $id !== null && ctype_digit($id)) {
+        q_exec('DELETE FROM meals WHERE id = ?', [(int) $id]);
+        no_content();
+    }
+
+    fail('Método no permitido', 405);
+}
+
+// --- prefs: perfil del hogar y preferencias ----------------------
+function route_prefs(string $method, ?string $key): void
+{
+    if ($method === 'GET' && $key === null) {
+        json_out(pref_all());
+    }
+
+    if (($method === 'PUT' || $method === 'POST') && $key === null) {
+        $b = body();
+        $k = strtolower(trim((string) ($b['key'] ?? $b['clave'] ?? '')));
+        $k = preg_replace('/[^a-z0-9_]+/', '_', $k);
+        $v = (string) ($b['value'] ?? $b['valor'] ?? '');
+        if ($k === '') {
+            fail('key es requerido');
+        }
+        pref_set($k, $v);
+        json_out(['ok' => true, 'key' => $k, 'value' => $v]);
+    }
+
+    if ($method === 'DELETE' && $key !== null) {
+        q_exec('DELETE FROM assistant_prefs WHERE pref_key = ?', [$key]);
+        no_content();
+    }
+
+    fail('Método no permitido', 405);
+}
+
+// --- chat: el agente Ali -----------------------------------------
 function route_chat(string $method, ?string $sub): void
 {
     if ($method === 'GET' && $sub === 'status') {
@@ -423,6 +624,10 @@ function route_chat(string $method, ?string $sub): void
 
     if ($method === 'GET' && $sub === 'history') {
         json_out(q_all('SELECT * FROM chat_messages ORDER BY id ASC LIMIT 200'));
+    }
+
+    if ($method === 'GET' && $sub === 'events') {
+        json_out(q_all('SELECT id, tool, summary, created_at FROM assistant_events ORDER BY id DESC LIMIT 50'));
     }
 
     if ($method === 'POST' && $sub === null) {
@@ -436,27 +641,21 @@ function route_chat(string $method, ?string $sub): void
         q_exec('INSERT INTO chat_messages (role, content) VALUES (?,?)', ['user', $message]);
 
         try {
-            $systemPrompt = build_system_prompt();
-            $fullHistory = array_merge($history, [['role' => 'user', 'content' => $message]]);
-            $result = get_chat_reply($systemPrompt, $fullHistory);
-            $rawReply = $result['reply'];
-
-            $saved = [];
-            if (preg_match_all('/\[MEMORIA:([^\]]+)\]/', $rawReply, $mm)) {
-                foreach ($mm[1] as $entry) {
-                    $entry = trim($entry);
-                    q_exec('INSERT INTO meal_memory (entry) VALUES (?)', [$entry]);
-                    $saved[] = $entry;
-                }
-            }
-            $reply = trim(preg_replace('/\[MEMORIA:[^\]]+\]/', '', $rawReply));
+            $result = assistant_reply($message, $history);
+            $reply = trim((string) $result['reply']);
 
             q_exec('INSERT INTO chat_messages (role, content) VALUES (?,?)', ['assistant', $reply]);
 
-            json_out(['reply' => $reply, 'simulated' => $result['simulated'], 'savedMemories' => $saved]);
+            json_out([
+                'reply' => $reply,
+                'simulated' => (bool) $result['simulated'],
+                'actions' => $result['actions'] ?? [],
+                'changed' => $result['changed'] ?? [],
+            ]);
         } catch (Throwable $e) {
-            error_log('[micocina] chat: ' . $e->getMessage());
-            json_out(['error' => 'Error de conexión con DeepSeek. Verifica la API key en el servidor.'], 502);
+            error_log('[ali] chat: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            q_exec('INSERT INTO chat_messages (role, content) VALUES (?,?)', ['assistant', '[error de conexión]']);
+            json_out(['error' => 'Ali no pudo responder: ' . $e->getMessage() . '. Revisa la API key de DeepSeek en el servidor.'], 502);
         }
     }
 
@@ -483,7 +682,14 @@ function route_admin(string $method, ?string $action): void
         json_out(run_seed($force));
     }
 
-    fail('Acción admin desconocida. Usa /api/admin/migrate o /api/admin/seed', 404);
+    if ($action === 'recalc') {
+        // Rellena qty_value/qty_unit/min_qty de la despensa desde el texto.
+        // Correr una vez tras desplegar el arnés sobre una base ya poblada.
+        $n = pantry_backfill_all();
+        json_out(['ok' => true, 'action' => 'recalc', 'productos' => $n, 'message' => 'Cantidades numéricas recalculadas.']);
+    }
+
+    fail('Acción admin desconocida. Usa /api/admin/migrate | seed | recalc', 404);
 }
 
 function run_seed(bool $force): array
@@ -505,6 +711,7 @@ function run_seed(bool $force): array
     $pdo->beginTransaction();
     try {
         foreach ([
+            'meal_items', 'meals', 'assistant_events',
             'pantry_items', 'recipe_ingredients', 'recipe_steps', 'recipes',
             'meal_plan', 'shopping_list_items', 'shopping_list_totals',
             'discoveries', 'nutrition_log', 'meal_memory', 'chat_messages',
@@ -516,6 +723,16 @@ function run_seed(bool $force): array
             q_exec(
                 'INSERT INTO pantry_items (name, quantity, category, expires_label, status, notes) VALUES (?,?,?,?,?,?)',
                 $p
+            );
+        }
+        // Rellena cantidad numérica + unidad (carnes -> porciones) desde el texto.
+        pantry_backfill_all();
+
+        foreach (($data['prefs'] ?? []) as $k => $v) {
+            q_exec(
+                'INSERT INTO assistant_prefs (pref_key, pref_value) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE pref_value = VALUES(pref_value), updated_at = NOW()',
+                [$k, $v]
             );
         }
 

@@ -2,9 +2,21 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 const PERIODS = ['3 días', '1 semana', '2 semanas', '3 semanas', '1 mes'];
+const SORTS = ['Urgencia', 'Precio', 'Tienda'];
+
+function bestPrice(it) {
+  const list = it.prices || [];
+  return list.find((p) => p.best) || list[0] || null;
+}
+function priceNum(it) {
+  const b = bestPrice(it);
+  const n = b ? parseFloat(String(b.price).replace(/[^\d.]/g, '')) : NaN;
+  return Number.isFinite(n) ? n : Infinity;
+}
 
 export default function Lista() {
   const [period, setPeriod] = useState('1 semana');
+  const [sort, setSort] = useState('Urgencia');
   const [data, setData] = useState({ items: [], total: null });
   const [loading, setLoading] = useState(true);
 
@@ -26,8 +38,21 @@ export default function Lista() {
 
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
 
+  const sortedItems = [...data.items].sort((a, b) => {
+    if (sort === 'Precio') return priceNum(a) - priceNum(b) || a.sort_order - b.sort_order;
+    if (sort === 'Tienda') {
+      const sa = bestPrice(a)?.store || '~';
+      const sb = bestPrice(b)?.store || '~';
+      return sa.localeCompare(sb) || a.sort_order - b.sort_order;
+    }
+    // Urgencia: el grupo "Urgentes" primero, luego el orden original.
+    const ua = a.group_label === 'Urgentes' ? 0 : 1;
+    const ub = b.group_label === 'Urgentes' ? 0 : 1;
+    return ua - ub || a.sort_order - b.sort_order;
+  });
+
   const groups = {};
-  for (const it of data.items) {
+  for (const it of sortedItems) {
     groups[it.group_label] = groups[it.group_label] || [];
     groups[it.group_label].push(it);
   }
@@ -47,10 +72,8 @@ export default function Lista() {
           <div className="lbl-s">Estimado · {period}</div>
           <div className="amt-big">{data.total || '—'}</div>
         </div>
-        <select className="period-select" defaultValue="Tienda">
-          <option>Tienda</option>
-          <option>Precio</option>
-          <option>Urgencia</option>
+        <select className="period-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+          {SORTS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
@@ -81,7 +104,6 @@ export default function Lista() {
           ))}
         </div>
       ))}
-      <a className="h-link">📋 Historial de compras y precios →</a>
     </div>
   );
 }
