@@ -38,17 +38,7 @@ export default function App() {
 
   return (
     <>
-      <div className="intro">
-        <div className="ey">Concepto funcional · Chat real DeepSeek · Datos de Gus</div>
-        <h1>Mi Cocina — Gus</h1>
-        <p>Chat con DeepSeek AI integrado. Dile en lenguaje natural qué comiste, qué quieres cambiar o qué tienes ganas de comer. Recuerda tus comidas y actualiza la skill.</p>
-        <div className={'api-st' + (configured ? ' ok' : '')}>
-          {configured ? '✓ DeepSeek conectado — chat real activo' : 'Sin conectar — modo simulado activo (configura DEEPSEEK_API_KEY en el servidor)'}
-        </div>
-      </div>
-
       <div className="device">
-        <div className="notch" />
         <Toast message={toast} />
 
         {screen === 'inicio' && (
