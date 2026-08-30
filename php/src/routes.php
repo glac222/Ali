@@ -126,7 +126,20 @@ function route_pantry(string $method, ?string $id): void
 /** Condimentos que se asumen siempre en casa: no cuentan como "falta". */
 const RECIPE_STAPLES = ['sal', 'aceite', 'azucar', 'agua', 'limon', 'lima', 'ajo', 'pimienta', 'vinagre', 'comino', 'achiote', 'sazon'];
 
-/** Tokens (≥3 letras) de todos los nombres de la despensa. Cacheado por request. */
+/** minúsculas + sin tildes/ñ, para comparar nombres sin que el acento estorbe. */
+function ali_deburr(string $s): string
+{
+    return strtr(mb_strtolower(trim($s)), [
+        'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a', 'ã' => 'a',
+        'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
+        'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o', 'õ' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u',
+        'ñ' => 'n', 'ç' => 'c',
+    ]);
+}
+
+/** Tokens (≥3 letras, sin tildes) de todos los nombres de la despensa. Cacheado por request. */
 function pantry_name_tokens(): array
 {
     static $toks = null;
@@ -134,8 +147,9 @@ function pantry_name_tokens(): array
         return $toks;
     }
     $toks = [];
-    foreach (q_all('SELECT name FROM pantry_items') as $r) {
-        foreach (preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower((string) $r['name'])) ?: [] as $w) {
+    // status 're' = agotado: no cuenta como disponible para cocinar.
+    foreach (q_all("SELECT name FROM pantry_items WHERE status <> 're'") as $r) {
+        foreach (preg_split('/[^\p{L}\p{N}]+/u', ali_deburr((string) $r['name'])) ?: [] as $w) {
             if (mb_strlen($w) >= 3) {
                 $toks[$w] = true;
             }
@@ -150,7 +164,7 @@ function pantry_name_tokens(): array
  */
 function recipe_ingredient_missing(string $text): bool
 {
-    $head = mb_strtolower(trim((preg_split('/[—:(\-]/u', $text)[0] ?? $text)));
+    $head = ali_deburr(preg_split('/[—:(\-]/u', $text)[0] ?? $text);
     $words = array_values(array_filter(
         preg_split('/[^\p{L}\p{N}]+/u', $head) ?: [],
         fn($w) => mb_strlen($w) >= 3 && !in_array($w, ALI_STOPWORDS, true)
