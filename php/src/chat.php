@@ -1417,12 +1417,12 @@ function assistant_simulated(string $message): array
                 'lugar' => $fuera ? 'fuera' : 'casa',
                 'estado' => 'consumida',
             ], $changed, $actions);
-            $reply = $r['registrada'] ?? 'Registré la comida.';
-            if (!$fuera && !empty($r['descuentos'])) {
-                $ok = array_filter($r['descuentos'], fn($d) => ($d['estado'] ?? '') === 'ok');
-                if ($ok) {
-                    $reply .= ' — descché ' . implode(', ', array_map(fn($d) => "{$d['item']} (quedan {$d['ahora']})", $ok)) . '.';
-                }
+            $reply = $fuera ? "Anoté tu {$tipo} fuera de casa; no toqué la despensa." : "Anoté tu {$tipo}.";
+            if (!$fuera) {
+                $ok = array_filter($r['descuentos'] ?? [], fn($d) => ($d['estado'] ?? '') === 'ok');
+                $reply .= $ok
+                    ? ' Descché ' . implode(', ', array_map(fn($d) => "{$d['item']} (quedan {$d['ahora']})", $ok)) . '.'
+                    : ' No identifiqué ingredientes de la despensa para descontar; dime cuáles.';
             }
             $reply .= ' (modo simulado, sin IA)';
             return ['reply' => $reply, 'simulated' => true, 'actions' => $actions, 'changed' => array_values(array_unique($changed))];
