@@ -65,8 +65,9 @@ Escritura:
 3. Si no puede convertir una unidad ("1 taza" de un producto en litros), no
    inventa: lo anota en el producto y lo dice.
 
-Las carnes se guardan en **porciones**. `POST /api/admin/recalc` convierte el
-texto existente ("1.2 kg" → "8 porciones").
+Las carnes se guardan en **porciones**. `GET /api/admin/recalc?token=` convierte
+el texto existente ("1.2 kg" → "8 porciones") y siembra `assistant_prefs`, todo
+sin borrar datos. Es el único paso post-`migrate` que hace falta.
 
 ## Preferencias / perfil del hogar
 

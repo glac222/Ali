@@ -146,11 +146,12 @@ Cuando subas la versión con el asistente Ali, además de los pasos de arriba:
    `assistant_events`) y las columnas nuevas de `pantry_items` y
    `shopping_list_items`. Es idempotente.
 3. `https://ali.calimundo.com/api/admin/recalc?token=EL_TOKEN`
-   — rellena `qty_value` / `qty_unit` / `min_qty` de la despensa a partir del
-   texto (las carnes pasan a "porciones"). Córrelo **una vez** después de migrar.
-4. (opcional) `https://ali.calimundo.com/api/admin/seed?token=EL_TOKEN&force=1`
-   si quieres restablecer también las preferencias base del hogar.
-   El `seed` sin `force` no borra nada.
+   — **una vez** después de migrar. Sin borrar nada: rellena
+   `qty_value` / `qty_unit` / `min_qty` de la despensa (las carnes pasan a
+   "porciones") y siembra el perfil del hogar (`assistant_prefs`).
+4. Solo si quieres **reiniciar todo** a los datos de ejemplo:
+   `https://ali.calimundo.com/api/admin/seed?token=EL_TOKEN&force=1`
+   (esto SÍ borra despensa, plan y lista actuales).
 
 Detalle de cómo funciona el arnés: `php/ASISTENTE.md`.
 
