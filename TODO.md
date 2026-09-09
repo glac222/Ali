@@ -25,7 +25,14 @@
 - Filtra pendientes disponibles en esa tienda; selección independiente (carrito)
   con total en vivo y botón "Marcar comprados".
 
+## Backend PHP (producción, Hostinger) — ✅ portado
+- `php/db/schema.sql`: tablas `providers`, `products`, `product_prices`.
+- `php/src/chat.php` + `php/src/routes.php`: mismo contexto de lista para el
+  chat, tag `[LISTA:...]`, auto-agregar por `agotado`, endpoints `/api/prices/*`.
+- Falta correr `…/api/admin/migrate?token=…` en el servidor real después de
+  subir los archivos, para crear las tablas nuevas.
+
 ## Pendiente / siguiente
-- Portar estos cambios al backend PHP (`php/`) usado en producción — por ahora
-  solo están en `server/` (Node, desarrollo).
+- Subir los archivos actualizados a Hostinger (no tengo acceso — ver
+  `php/DEPLOY.md`) y correr la migración.
 - Conectar `product_prices` como fuente real de `price-tags` en la lista.

@@ -28,7 +28,10 @@ REGLAS FIJAS (NUNCA ROMPER):
 9. Sin patacones en casa (tiempo)
 10. Desayuno es OPCIONAL — batido+sándwiches es opción rápida, no obligatoria
 11. Cuando registres comidas que Gus menciona, responde confirmando y añade [MEMORIA:descripción corta] al final para que el sistema la guarde
+12. Cuando Gus pida añadir algo a la lista de compras, responde confirmando y añade [LISTA:nombre del producto] al final (uno por producto) para que el sistema lo guarde. No inventes productos que no pidió.
 TXT;
+
+const DEFAULT_LIST_PERIOD = '1 semana';
 
 function chat_is_configured(): bool
 {
@@ -43,6 +46,12 @@ function build_system_prompt(): string
         $extra = $p['expires_label'] !== '' ? ', ' . $p['expires_label'] : '';
         return "{$p['name']} ({$p['quantity']}{$extra})";
     }, $pantry));
+
+    $listRows = q_all('SELECT name, qty, checked FROM shopping_list_items WHERE period = ? ORDER BY sort_order', [DEFAULT_LIST_PERIOD]);
+    $pending = array_values(array_filter($listRows, fn($i) => !((bool) $i['checked'])));
+    $listStr = $pending
+        ? implode(', ', array_map(fn($i) => $i['name'] . ((int) $i['qty'] > 1 ? " (x{$i['qty']})" : ''), $pending))
+        : 'vacía';
 
     $planRows = q_all('SELECT weekday, meal_type, title FROM meal_plan ORDER BY sort_order');
     $byDay = [];
@@ -74,6 +83,8 @@ Eres el asistente de cocina y nutrición personal de Gus en Guayaquil, Ecuador.{
 
 DESPENSA ACTUAL: {$pantryStr}.
 
+LISTA DE COMPRAS ACTUAL (esta semana, pendientes): {$listStr}.
+
 PLAN SEMANAL: {$planStr}.
 
 {$rules}
@@ -82,6 +93,7 @@ CÓMO RESPONDER:
 - Español, directo, máximo 3-4 líneas
 - Si dice "hoy comí X", confirma y añade [MEMORIA:Lunes almuerzo=X]
 - Si pide lista de compras, genera según período
+- Si pide añadir algo a la lista de compras, confirma y añade [LISTA:producto]
 - Si pide ideas para comer/peli, sugiere con despensa + opciones externas con precios
 - Si pide cambio en plan, ajusta y confirma
 TXT;
