@@ -1,7 +1,19 @@
 import { Router } from 'express';
 import db from '../db.js';
+import { DEFAULT_LIST_PERIOD } from '../services/systemPrompt.js';
 
 const router = Router();
+
+function addToShoppingListIfMissing(name) {
+  const existing = db.prepare(
+    `SELECT id FROM shopping_list_items WHERE period = ? AND checked = 0 AND LOWER(name) = LOWER(?)`
+  ).get(DEFAULT_LIST_PERIOD, name);
+  if (existing) return;
+  const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?').get(DEFAULT_LIST_PERIOD).m;
+  db.prepare(
+    `INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order) VALUES (?,?,?,1,'[]',?)`
+  ).run(DEFAULT_LIST_PERIOD, 'Despensa', name, maxOrder + 1);
+}
 
 router.get('/', (req, res) => {
   const rows = db.prepare('SELECT * FROM pantry_items ORDER BY category, id').all();
@@ -25,6 +37,11 @@ router.put('/:id', (req, res) => {
   db.prepare(
     `UPDATE pantry_items SET name=?, quantity=?, category=?, expires_label=?, status=?, notes=?, updated_at=datetime('now') WHERE id=?`
   ).run(merged.name, merged.quantity, merged.category, merged.expires_label, merged.status, merged.notes, req.params.id);
+
+  if (merged.status === 'agotado' && existing.status !== 'agotado') {
+    addToShoppingListIfMissing(merged.name);
+  }
+
   res.json(db.prepare('SELECT * FROM pantry_items WHERE id = ?').get(req.params.id));
 });
 

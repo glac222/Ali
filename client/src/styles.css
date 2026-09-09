@@ -93,9 +93,10 @@ body{background:var(--paper);color:var(--ink);font-family:'Manrope',sans-serif;-
 .chip.active{background:var(--g7);border-color:var(--g7);color:var(--w);}
 .cat-label{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:12px 0 6px;}
 .pr{display:flex;align-items:center;gap:8px;background:var(--w);border:1px solid var(--line);border-radius:10px;padding:9px 10px;margin-bottom:6px;}
-.pd{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--g5);}
+.pd{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--g5);cursor:pointer;}
 .pd.am{background:var(--am);}
 .pd.re{background:var(--re);}
+.pd.agotado{background:var(--faint);}
 .pi{flex:1;min-width:0;}
 .pn{font-weight:700;font-size:11.5px;}
 .pm{font-size:9.5px;color:var(--faint);margin-top:1px;}

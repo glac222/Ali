@@ -13,6 +13,8 @@ const CAT_GROUP_LABEL = { carnes: 'Carnes y proteínas', lacteos: 'Lácteos y pa
 
 const EMPTY_FORM = { name: '', quantity: '', category: 'carnes', expires_label: '' };
 
+const STATUS_CYCLE = ['ok', 'am', 're', 'agotado'];
+
 export default function Despensa({ onToast }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +64,13 @@ export default function Despensa({ onToast }) {
     setTimeout(() => setScanResult(true), 1400);
   }
 
+  async function cycleStatus(it) {
+    const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(it.status) + 1) % STATUS_CYCLE.length];
+    const updated = await api.pantry.update(it.id, { status: next });
+    setItems((cur) => cur.map((i) => (i.id === it.id ? updated : i)));
+    if (next === 'agotado') onToast?.('🛒 Añadido a la lista de compras');
+  }
+
   async function addScannedToPantry() {
     const created = await api.pantry.create({ name: 'Atún Van Camps en agua 142g', quantity: '1 lata', category: 'latas', expires_label: '2 años' });
     setItems((cur) => [...cur, created]);
@@ -97,10 +106,14 @@ export default function Despensa({ onToast }) {
           <div className="cat-label">{CAT_GROUP_LABEL[cat] || cat}</div>
           {rows.map((it) => (
             <div className="pr" key={it.id}>
-              <div className={'pd' + (it.status === 'am' ? ' am' : it.status === 're' ? ' re' : '')} />
+              <div
+                className={'pd' + (it.status === 'am' ? ' am' : it.status === 're' ? ' re' : it.status === 'agotado' ? ' agotado' : '')}
+                onClick={() => cycleStatus(it)}
+                title="Click para cambiar estado (agotado = va a la lista de compras)"
+              />
               <div className="pi">
                 <div className="pn">{it.name}</div>
-                <div className="pm">{it.expires_label}{it.notes ? ` · ${it.notes}` : ''}</div>
+                <div className="pm">{it.status === 'agotado' ? 'Agotado' : it.expires_label}{it.notes ? ` · ${it.notes}` : ''}</div>
               </div>
               <div className="pq">{it.quantity}</div>
             </div>

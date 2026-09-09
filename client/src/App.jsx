@@ -55,6 +55,7 @@ export default function App() {
           autoSend={autoSend}
           configured={configured}
           onMemorySaved={() => showToast('📝 Guardado en memoria')}
+          onListUpdated={(names) => showToast(`🛒 Añadido a la lista: ${names.join(', ')}`)}
         />
 
         <div className="bottom-zone">

@@ -3,7 +3,7 @@ import { api } from '../api.js';
 
 const GREETING = { role: 'ai', content: 'Hola Gus. Puedo cambiar tu plan, anotar lo que comiste, sugerir qué comer con lo que tienes, o generar la lista de compras. ¿En qué te ayudo?' };
 
-export default function ChatPanel({ open, onClose, autoSend, configured, onMemorySaved }) {
+export default function ChatPanel({ open, onClose, autoSend, configured, onMemorySaved, onListUpdated }) {
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -28,10 +28,11 @@ export default function ChatPanel({ open, onClose, autoSend, configured, onMemor
     historyRef.current = [...historyRef.current, { role: 'user', content: text }];
     setSending(true);
     try {
-      const { reply, savedMemories } = await api.chat.send(text, historyRef.current.slice(-12));
+      const { reply, savedMemories, addedToList } = await api.chat.send(text, historyRef.current.slice(-12));
       setMessages((m) => [...m, { role: 'ai', content: reply }]);
       historyRef.current = [...historyRef.current, { role: 'assistant', content: reply }];
       if (savedMemories?.length && onMemorySaved) onMemorySaved();
+      if (addedToList?.length && onListUpdated) onListUpdated(addedToList);
     } catch (err) {
       setMessages((m) => [...m, { role: 'ai', content: 'Error de conexión con el servidor. Intenta de nuevo.' }]);
     } finally {
