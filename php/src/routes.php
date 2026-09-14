@@ -83,13 +83,13 @@ function pantry_row(int $id): ?array
 function add_to_shopping_list_if_missing(string $name, string $source = 'manual'): void
 {
     $existing = q_one(
-        'SELECT id FROM shopping_list_items WHERE period = ? AND checked = 0 AND LOWER(name) = LOWER(?)',
-        [DEFAULT_LIST_PERIOD, $name]
+        'SELECT id FROM shopping_list_items WHERE checked = 0 AND LOWER(name) = LOWER(?)',
+        [$name]
     );
     if ($existing) {
         return;
     }
-    $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [DEFAULT_LIST_PERIOD])['m']);
+    $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items')['m']);
     q_exec(
         "INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order, source) VALUES (?,?,?,1,'[]',?,?)",
         [DEFAULT_LIST_PERIOD, 'Despensa', $name, $max + 1, $source]
@@ -359,15 +359,15 @@ function route_shopping_list(string $method, ?string $id): void
 {
     if ($method === 'GET' && $id === null) {
         $period = (string) ($_GET['period'] ?? '1 semana');
-        $rows = q_all('SELECT * FROM shopping_list_items WHERE period = ? ORDER BY sort_order', [$period]);
-        // El total es la suma real de (mejor precio × cantidad) de los ítems con
-        // precio cargado; ya no un número fijo de la tabla shopping_list_totals.
-        $totals = shopping_list_total($period, $rows);
+        // Recalcula en vivo desde el plan + despensa, escalado a este período.
+        // No hay una lista guardada por período: es una sola lista, y cambiar
+        // el período solo cambia cuánto hace falta de cada cosa.
+        $result = shopping_list_generate($period);
         json_out([
-            'period' => $period,
-            'total' => $totals['amount'],
-            'total_note' => $totals['note'],
-            'items' => array_map('shopping_item_out', $rows),
+            'period' => $result['period'],
+            'total' => $result['total'],
+            'total_note' => $result['total_note'],
+            'items' => $result['items'],
         ]);
     }
 
@@ -394,7 +394,7 @@ function route_shopping_list(string $method, ?string $id): void
             fail('name es requerido');
         }
         $period = (string) ($b['period'] ?? '1 semana');
-        $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [$period])['m']);
+        $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items')['m']);
         q_exec(
             'INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order, source) VALUES (?,?,?,?,?,?,?)',
             [

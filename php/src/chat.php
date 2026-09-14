@@ -516,7 +516,7 @@ function assistant_context(): string
         : 'ninguna todavía';
 
     // Lista activa
-    $list = q_all("SELECT name, qty, checked FROM shopping_list_items WHERE period = '1 semana' ORDER BY sort_order");
+    $list = q_all("SELECT name, qty, checked FROM shopping_list_items ORDER BY sort_order");
     $listStr = $list
         ? implode(', ', array_map(fn($i) => $i['name'] . ($i['qty'] > 1 ? " x{$i['qty']}" : '') . ($i['checked'] ? ' ✓' : ''), $list))
         : 'vacía';
@@ -758,13 +758,11 @@ function assistant_tools(): array
 
         $tool('lista_quitar', 'Quita ítems de la lista de compras. Requiere confirmación.', [
             'items' => ['type' => 'array', 'items' => $s('nombre o id del ítem')],
-            'periodo' => $s('opcional; por defecto "1 semana"'),
             'confirmado' => $b('true solo cuando el usuario ya confirmó'),
         ], ['items']),
 
         $tool('lista_marcar_comprado', 'Marca ítems de la lista como comprados y, por defecto, los mueve a la despensa. Para "ya compré X".', [
             'items' => ['type' => 'array', 'items' => $s('nombre o id del ítem')],
-            'periodo' => $s('opcional; por defecto "1 semana"'),
             'mover_a_despensa' => $b('por defecto true'),
         ], ['items']),
 
@@ -1253,11 +1251,11 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                     if ($nom === '') continue;
                     $qty = max(1, (int) ($it['cantidad'] ?? 1));
                     $grupo = trim((string) ($it['grupo'] ?? ''));
-                    $ex = q_one('SELECT * FROM shopping_list_items WHERE period = ? AND LOWER(name) = LOWER(?)', [$periodo, $nom]);
+                    $ex = q_one('SELECT * FROM shopping_list_items WHERE LOWER(name) = LOWER(?)', [$nom]);
                     if ($ex) {
                         q_exec('UPDATE shopping_list_items SET qty = qty + ? WHERE id = ?', [$qty, (int) $ex['id']]);
                     } else {
-                        $max = (int) (q_one('SELECT COALESCE(MAX(sort_order),-1) m FROM shopping_list_items WHERE period = ?', [$periodo])['m']);
+                        $max = (int) (q_one('SELECT COALESCE(MAX(sort_order),-1) m FROM shopping_list_items')['m']);
                         q_exec('INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order, source) VALUES (?,?,?,?,?,?,\'ia\')',
                             [$periodo, $grupo, $nom, $qty, '[]', $max + 1]);
                     }
@@ -1274,7 +1272,6 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
 
             case 'lista_quitar': {
                 $items = is_array($args['items'] ?? null) ? $args['items'] : [];
-                $periodo = trim((string) ($args['periodo'] ?? '1 semana')) ?: '1 semana';
                 if (empty($args['confirmado'])) {
                     return ['estado' => 'requiere_confirmacion',
                         'resumen' => 'Vas a quitar de la lista: ' . implode(', ', array_map('strval', $items)) . '. ¿Confirmas?'];
@@ -1283,8 +1280,8 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                 foreach ($items as $ref) {
                     $ref = trim((string) $ref);
                     $row = ctype_digit($ref)
-                        ? q_one('SELECT * FROM shopping_list_items WHERE id = ? AND period = ?', [(int) $ref, $periodo])
-                        : q_one('SELECT * FROM shopping_list_items WHERE period = ? AND LOWER(name) LIKE ?', [$periodo, '%' . mb_strtolower($ref) . '%']);
+                        ? q_one('SELECT * FROM shopping_list_items WHERE id = ?', [(int) $ref])
+                        : q_one('SELECT * FROM shopping_list_items WHERE LOWER(name) LIKE ?', ['%' . mb_strtolower($ref) . '%']);
                     if ($row) {
                         q_exec('DELETE FROM shopping_list_items WHERE id = ?', [(int) $row['id']]);
                         $removed[] = $row['name'];
@@ -1298,14 +1295,13 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
 
             case 'lista_marcar_comprado': {
                 $items = is_array($args['items'] ?? null) ? $args['items'] : [];
-                $periodo = trim((string) ($args['periodo'] ?? '1 semana')) ?: '1 semana';
                 $mover = ($args['mover_a_despensa'] ?? true) !== false;
                 $done = [];
                 foreach ($items as $ref) {
                     $ref = trim((string) $ref);
                     $row = ctype_digit($ref)
-                        ? q_one('SELECT * FROM shopping_list_items WHERE id = ? AND period = ?', [(int) $ref, $periodo])
-                        : q_one('SELECT * FROM shopping_list_items WHERE period = ? AND LOWER(name) LIKE ?', [$periodo, '%' . mb_strtolower($ref) . '%']);
+                        ? q_one('SELECT * FROM shopping_list_items WHERE id = ?', [(int) $ref])
+                        : q_one('SELECT * FROM shopping_list_items WHERE LOWER(name) LIKE ?', ['%' . mb_strtolower($ref) . '%']);
                     if (!$row) continue;
                     q_exec('UPDATE shopping_list_items SET checked = 1 WHERE id = ?', [(int) $row['id']]);
                     $done[] = $row['name'];
@@ -1332,8 +1328,8 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                     return ['estado' => 'error', 'mensaje' => 'Falta el ítem al que ponerle precio.'];
                 }
                 $row = ctype_digit($ref)
-                    ? q_one('SELECT * FROM shopping_list_items WHERE id = ? AND period = ?', [(int) $ref, $periodo])
-                    : q_one('SELECT * FROM shopping_list_items WHERE period = ? AND LOWER(name) LIKE ? ORDER BY sort_order', [$periodo, '%' . mb_strtolower($ref) . '%']);
+                    ? q_one('SELECT * FROM shopping_list_items WHERE id = ?', [(int) $ref])
+                    : q_one('SELECT * FROM shopping_list_items WHERE LOWER(name) LIKE ? ORDER BY sort_order', ['%' . mb_strtolower($ref) . '%']);
                 // Sin match en la lista actual: igual se guarda como referencia real
                 // en el catálogo (products/providers/product_prices), reusable en
                 // cualquier lista futura aunque el producto no esté hoy en esta.
