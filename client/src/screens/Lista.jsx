@@ -46,13 +46,22 @@ function priceNum(it) {
   return p ? p.amount : Infinity;
 }
 
-// Costo de la línea: precio × cantidad (o × paquetes si es precio de lote).
-// null = precio no multiplicable -> cuenta como "sin precio" en el estimado.
-function lineCost(it) {
-  const p = parsePrice(bestPrice(it)?.price);
+// El precio de un ítem en una tienda puntual (no necesariamente el "best").
+function priceAt(it, store) {
+  return (it.prices || []).find((p) => p.store === store) || null;
+}
+
+// Costo de una entrada de precio × cantidad (o × paquetes si es precio de lote).
+// null = precio no multiplicable -> cuenta como "sin precio".
+function costFor(priceEntry, qty) {
+  const p = parsePrice(priceEntry?.price);
   if (!p) return null;
-  const qty = Math.max(1, it.qty);
-  return p.pack > 1 ? p.amount * Math.max(1, Math.ceil(qty / p.pack)) : p.amount * qty;
+  const q = Math.max(1, qty);
+  return p.pack > 1 ? p.amount * Math.max(1, Math.ceil(q / p.pack)) : p.amount * q;
+}
+
+function lineCost(it) {
+  return costFor(bestPrice(it), it.qty);
 }
 
 export default function Lista() {
@@ -60,6 +69,10 @@ export default function Lista() {
   const [sort, setSort] = useState('Urgencia');
   const [data, setData] = useState({ items: [], total: null });
   const [loading, setLoading] = useState(true);
+  const [buyMode, setBuyMode] = useState(false);
+  const [buyStore, setBuyStore] = useState(null);
+  const [cart, setCart] = useState(() => new Set());
+  const [buying, setBuying] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -94,6 +107,36 @@ export default function Lista() {
     }
   }
 
+  function toggleBuyMode() {
+    setBuyMode((v) => !v);
+    setBuyStore(null);
+    setCart(new Set());
+  }
+
+  function toggleCart(id) {
+    setCart((c) => {
+      const next = new Set(c);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function markBought() {
+    if (cart.size === 0 || buying) return;
+    setBuying(true);
+    const ids = [...cart];
+    try {
+      const updates = await Promise.all(ids.map((id) => api.shoppingList.update(id, { checked: true })));
+      setData((d) => ({
+        ...d,
+        items: d.items.map((i) => updates.find((u) => u.id === i.id) || i),
+      }));
+      setCart(new Set());
+    } finally {
+      setBuying(false);
+    }
+  }
+
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
 
   const sortedItems = [...data.items].sort((a, b) => {
@@ -122,6 +165,14 @@ export default function Lista() {
   const sinPrecio = costs.filter((c) => c == null).length;
   const estimado = costs.some((c) => c != null) ? `$${sumTotal.toFixed(2)}` : '—';
 
+  // Modo comprar: solo lo pendiente, agrupado por tienda disponible.
+  const pending = data.items.filter((it) => !it.checked);
+  const stores = [...new Set(pending.flatMap((it) => (it.prices || []).map((p) => p.store)))].sort();
+  const storeItems = buyStore ? pending.filter((it) => priceAt(it, buyStore)) : [];
+  const cartCost = storeItems
+    .filter((it) => cart.has(it.id))
+    .reduce((s, it) => s + (costFor(priceAt(it, buyStore), it.qty) || 0), 0);
+
   return (
     <div className="screen active">
       <div className="top-row"><div className="top-title">Lista de compras</div><div className="avatar">{data.items.length}</div></div>
@@ -132,45 +183,105 @@ export default function Lista() {
         ))}
       </div>
 
-      <div className="list-summary">
-        <div>
-          <div className="lbl-s">Estimado · {period}</div>
-          <div className="amt-big">{estimado}</div>
-          {sinPrecio > 0 && <div className="lbl-s" style={{ color: 'var(--faint)' }}>{sinPrecio} sin precio</div>}
-        </div>
-        <select className="period-select" value={sort} onChange={(e) => setSort(e.target.value)}>
-          {SORTS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+      <div className="period-btns">
+        <button className={'pb' + (buyMode ? ' active' : '')} onClick={toggleBuyMode}>
+          🛒 {buyMode ? 'Salir de modo comprar' : 'Modo comprar'}
+        </button>
       </div>
 
-      {Object.keys(groups).length === 0 && <div className="loading-msg">Sin artículos para este período todavía</div>}
+      {buyMode ? (
+        <>
+          <div className="period-btns">
+            {stores.map((s) => (
+              <button key={s} className={'pb' + (buyStore === s ? ' active' : '')} onClick={() => { setBuyStore(s); setCart(new Set()); }}>{s}</button>
+            ))}
+          </div>
 
-      {Object.entries(groups).map(([label, rows]) => (
-        <div key={label}>
-          <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 8.5, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '10px 0 6px' }}>{label}</div>
-          {rows.map((it) => (
-            <div className={'shop-item' + (it.checked ? ' checked' : '')} key={it.id}>
-              <div className="si-row">
-                <div className="checkbox" onClick={() => toggleCheck(it)}>
-                  {it.checked && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>}
+          {!buyStore && (
+            <div className="loading-msg">
+              {stores.length === 0 ? 'Ningún pendiente tiene precio por tienda todavía' : 'Elige una tienda'}
+            </div>
+          )}
+
+          {buyStore && (
+            <>
+              <div className="list-summary">
+                <div>
+                  <div className="lbl-s">Carrito · {buyStore}</div>
+                  <div className="amt-big">${cartCost.toFixed(2)}</div>
                 </div>
-                <div className="si-name">{it.name}</div>
-                <div className="stepper">
-                  <button onClick={() => step(it, -1)}>−</button>
-                  <span className="n">{stepCount(it)}</span>
-                  <button onClick={() => step(it, 1)}>+</button>
+                <button className="pb" disabled={cart.size === 0 || buying} style={{ opacity: cart.size === 0 || buying ? 0.5 : 1 }} onClick={markBought}>
+                  Marcar comprados ({cart.size})
+                </button>
+              </div>
+
+              {storeItems.length === 0 && <div className="loading-msg">Nada pendiente en {buyStore}</div>}
+
+              {storeItems.map((it) => {
+                const entry = priceAt(it, buyStore);
+                const cost = costFor(entry, it.qty);
+                return (
+                  <div className={'shop-item' + (cart.has(it.id) ? ' checked' : '')} key={it.id}>
+                    <div className="si-row">
+                      <div className="checkbox" onClick={() => toggleCart(it.id)}>
+                        {cart.has(it.id) && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>}
+                      </div>
+                      <div className="si-name">{it.name}</div>
+                      <div className="stepper"><span className="n">{stepCount(it)}</span></div>
+                    </div>
+                    <div className="price-tags">
+                      <span className="ptag best">{entry.store} {entry.price}</span>
+                      {cost != null && <span className="ptag sub">= ${cost.toFixed(2)}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="list-summary">
+            <div>
+              <div className="lbl-s">Estimado · {period}</div>
+              <div className="amt-big">{estimado}</div>
+              {sinPrecio > 0 && <div className="lbl-s" style={{ color: 'var(--faint)' }}>{sinPrecio} sin precio</div>}
+            </div>
+            <select className="period-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+              {SORTS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {Object.keys(groups).length === 0 && <div className="loading-msg">Sin artículos para este período todavía</div>}
+
+          {Object.entries(groups).map(([label, rows]) => (
+            <div key={label}>
+              <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 8.5, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '10px 0 6px' }}>{label}</div>
+              {rows.map((it) => (
+                <div className={'shop-item' + (it.checked ? ' checked' : '')} key={it.id}>
+                  <div className="si-row">
+                    <div className="checkbox" onClick={() => toggleCheck(it)}>
+                      {it.checked && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>}
+                    </div>
+                    <div className="si-name">{it.name}</div>
+                    <div className="stepper">
+                      <button onClick={() => step(it, -1)}>−</button>
+                      <span className="n">{stepCount(it)}</span>
+                      <button onClick={() => step(it, 1)}>+</button>
+                    </div>
+                  </div>
+                  <div className="price-tags">
+                    {it.prices.map((p, i) => (
+                      <span key={i} className={'ptag' + (p.best ? ' best' : '')}>{p.store} {p.price}</span>
+                    ))}
+                    {lineCost(it) != null && <span className="ptag sub">= ${lineCost(it).toFixed(2)}</span>}
+                  </div>
                 </div>
-              </div>
-              <div className="price-tags">
-                {it.prices.map((p, i) => (
-                  <span key={i} className={'ptag' + (p.best ? ' best' : '')}>{p.store} {p.price}</span>
-                ))}
-                {lineCost(it) != null && <span className="ptag sub">= ${lineCost(it).toFixed(2)}</span>}
-              </div>
+              ))}
             </div>
           ))}
-        </div>
-      ))}
+        </>
+      )}
     </div>
   );
 }
