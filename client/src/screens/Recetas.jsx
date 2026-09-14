@@ -37,19 +37,6 @@ export default function Recetas({ onOpenChat }) {
         ))}
       </div>
 
-      <div className="movie-card" onClick={() => onOpenChat('Modo noche de pelis: dime qué puedo comer con lo que tengo en casa y también opciones de afuera con precios.')}>
-        <div className="mv-head">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5"><circle cx="12" cy="12" r="10" /><polygon points="10 8 16 12 10 16 10 8" fill="white" /></svg>
-          <div><div className="mv-title">Noche de pelis 🎬</div><div className="mv-sub">¿Qué como hoy? — con lo que tengo y fuera</div></div>
-        </div>
-        <div className="mv-items">
-          <div className="mv-item"><div className="mv-iname">🏠 Sándwiches de atún</div><div className="mv-idesc">Pan + atún + tomate · sin cocción</div><div className="mv-price">En casa · $0 extra</div></div>
-          <div className="mv-item"><div className="mv-iname">🏠 Trocitos de pollo fritos</div><div className="mv-idesc">Cubos de pechuga con sal y ajo · 5 min</div><div className="mv-price">En casa · $0 extra</div></div>
-          <div className="mv-ext"><div className="mv-iname">🛵 Hot dog + papas fritas</div><div className="mv-idesc">Pedir a domicilio o ir a buscar</div><div className="mv-price">Hot dog $1.25 + papas $2.00 = $3.25</div></div>
-          <div className="mv-ext"><div className="mv-iname">🛵 Hamburguesa completa</div><div className="mv-idesc">Más contundente para noche larga</div><div className="mv-price">Hamburguesa $3.00 + papas $2.00 = $5.00</div></div>
-        </div>
-      </div>
-
       {shown.map((r) => {
         const miss = missingCount(r);
         return (

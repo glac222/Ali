@@ -78,6 +78,30 @@ CREATE TABLE IF NOT EXISTS discoveries (
   gradient VARCHAR(255) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Ocasiones para compartir: tarjetas de ideas por situación (noche de pelis,
+-- desayuno con alguien, visita en casa...). Generaliza la tarjeta fija que vivía
+-- en el frontend. Cada ocasión tiene varias ideas (en casa o para salir).
+CREATE TABLE IF NOT EXISTS occasions (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  slug       VARCHAR(120) NOT NULL UNIQUE,
+  emoji      VARCHAR(16)  NOT NULL DEFAULT '',
+  title      VARCHAR(160) NOT NULL,
+  subtitle   VARCHAR(255) NOT NULL DEFAULT '',
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS occasion_items (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  occasion_id INT NOT NULL,
+  label       VARCHAR(200) NOT NULL,
+  detail      VARCHAR(255) NOT NULL DEFAULT '',
+  place       VARCHAR(12)  NOT NULL DEFAULT 'casa',   -- casa | fuera
+  price       VARCHAR(120) NOT NULL DEFAULT '',
+  sort_order  INT NOT NULL DEFAULT 0,
+  CONSTRAINT fk_oi_occasion FOREIGN KEY (occasion_id) REFERENCES occasions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS nutrition_log (
   log_date        DATE NOT NULL PRIMARY KEY,
   calories        INT NOT NULL DEFAULT 0,
@@ -120,6 +144,11 @@ ALTER TABLE pantry_items ADD COLUMN IF NOT EXISTS min_qty   DECIMAL(10,2) NULL;
 --   el botón "Generar lista" desde el plan/despensa | ia = lo agregó Ali.
 -- "Generar lista" solo borra y recrea los 'auto'; nunca toca lo manual.
 ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual';
+
+-- Bitácora de lugares: distingue lo que hay "por probar" (visited = 0) de los
+-- sitios donde Gus YA fue (visited = 1), y guarda una nota a futuro de qué pedir.
+ALTER TABLE discoveries ADD COLUMN IF NOT EXISTS visited   TINYINT NOT NULL DEFAULT 0;
+ALTER TABLE discoveries ADD COLUMN IF NOT EXISTS dish_note VARCHAR(500) NOT NULL DEFAULT '';
 
 -- Comidas registradas (lo que Gus efectivamente comió o tiene planificado).
 -- Distinto de meal_plan, que es la plantilla semanal.

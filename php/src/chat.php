@@ -20,8 +20,12 @@ declare(strict_types=1);
 
 const DEEPSEEK_URL   = 'https://api.deepseek.com/chat/completions';
 const ALI_MODEL      = 'deepseek-chat';
-const ALI_MAX_ROUNDS = 4;      // rondas de herramientas antes de forzar respuesta
+const ALI_MAX_ROUNDS = 6;      // rondas de herramientas antes de forzar respuesta
 const ALI_HTTP_TIMEOUT = 55;   // s por llamada (Hostinger corta a los 300 s)
+
+// Desayuno por defecto entre semana (lunes a sábado). No es opcional.
+const ALI_DESAYUNO_DEFECTO = 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla';
+const ALI_DESAYUNO_DEFECTO_DETALLE = 'Rápido y contundente';
 
 // -------------------------------------------------------------------------
 //  Configuración
@@ -395,6 +399,54 @@ function pantry_discount(array $item, string $consumoText, string $motivo): arra
     ];
 }
 
+/**
+ * Devuelve a la despensa lo que una comida ya registrada había descontado.
+ * Se usa al borrar o al REEMPLAZAR una comida, para no descontar dos veces.
+ */
+function meal_restore_stock(int $mealId): void
+{
+    foreach (q_all('SELECT * FROM meal_items WHERE meal_id = ? AND deducted = 1 AND pantry_item_id IS NOT NULL', [$mealId]) as $mi) {
+        $p = q_one('SELECT * FROM pantry_items WHERE id = ?', [(int) $mi['pantry_item_id']]);
+        if (!$p || (string) $mi['qty_text'] === '') {
+            continue;
+        }
+        $qp = qty_parse((string) $mi['qty_text']);
+        $back = qty_convert($qp['value'], $qp['unit'], (string) $p['qty_unit'], (string) $p['category']);
+        if ($back === null || $p['qty_value'] === null) {
+            continue;
+        }
+        $nv = round((float) $p['qty_value'] + $back, 2);
+        $min = $p['min_qty'] !== null ? (float) $p['min_qty'] : null;
+        $status = $nv <= 0.0 ? 're' : (($min !== null && $nv < $min) ? 'am' : 'ok');
+        q_exec(
+            'UPDATE pantry_items SET qty_value = ?, quantity = ?, status = ?, updated_at = NOW() WHERE id = ?',
+            [$nv, qty_format($nv, (string) $p['qty_unit']), $status, (int) $p['id']]
+        );
+    }
+}
+
+/**
+ * Cachea el total estimado de un período en shopping_list_totals. La cuenta viva
+ * la hace shopping_list_total() (php/src/shopping.php): mejor precio × cantidad,
+ * o × paquetes si el precio es "por lote" ("$1.00/pack 8 un"). Deja el total como
+ * estaba si ningún ítem tiene un precio multiplicable.
+ */
+function shopping_total_recalc(string $period): void
+{
+    if (!function_exists('shopping_list_total')) {
+        return;
+    }
+    $t = shopping_list_total($period);
+    if (($t['priced'] ?? 0) === 0) {
+        return;
+    }
+    q_exec(
+        'INSERT INTO shopping_list_totals (period, amount) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE amount = VALUES(amount)',
+        [$period, '$' . number_format((float) $t['sum'], 2, '.', '')]
+    );
+}
+
 // -------------------------------------------------------------------------
 //  Contexto y prompt de sistema
 // -------------------------------------------------------------------------
@@ -416,7 +468,7 @@ const ALI_REGLAS_COCINA = <<<'TXT'
 7. Sardinas nunca en el desayuno.
 8. Hígado sin cebolla encima.
 9. Sin patacones en casa (toma tiempo).
-10. El desayuno es OPCIONAL — batido + sándwiches es una opción rápida, no una obligación.
+10. El desayuno NO es opcional: de lunes a sábado es batido de guineo + 3 sándwiches (queso crema + jamón + tortilla); el domingo, encebollado comprado.
 TXT;
 
 function assistant_context(): string
@@ -474,6 +526,26 @@ function assistant_context(): string
     $notes = q_all('SELECT entry FROM meal_memory ORDER BY id DESC LIMIT 8');
     $noteStr = $notes ? implode("\n", array_map(fn($n) => "- {$n['entry']}", $notes)) : '- (ninguna)';
 
+    // Ocasiones para compartir (nº de ideas por tarjeta)
+    $occ = q_all(
+        'SELECT o.title, o.emoji, o.sort_order, COUNT(i.id) AS n
+         FROM occasions o LEFT JOIN occasion_items i ON i.occasion_id = o.id
+         GROUP BY o.id, o.title, o.emoji, o.sort_order
+         ORDER BY o.sort_order, o.title'
+    );
+    $occStr = $occ
+        ? implode("\n", array_map(fn($o) => trim("- {$o['emoji']} {$o['title']} ({$o['n']} ideas)"), $occ))
+        : '- (ninguna)';
+
+    // Lugares: por probar vs. ya visitados (con qué pedir)
+    $places = q_all('SELECT title, visited, dish_note FROM discoveries ORDER BY visited DESC, id');
+    $pv = array_values(array_filter($places, fn($p) => !$p['visited']));
+    $vi = array_values(array_filter($places, fn($p) => (int) $p['visited'] === 1));
+    $placeStr = 'Por probar: ' . ($pv ? implode(', ', array_map(fn($p) => $p['title'], $pv)) : '—') . "\n"
+        . 'Ya fui: ' . ($vi
+            ? implode('; ', array_map(fn($p) => $p['title'] . ($p['dish_note'] !== '' ? " (pedir: {$p['dish_note']})" : ''), $vi))
+            : '—');
+
     $pantryBlock = implode("\n", $pLines);
     $pantryCount = count($pantry) . ' productos';
 
@@ -494,6 +566,12 @@ PREFERENCIAS Y PERFIL:
 
 NOTAS RECIENTES:
 {$noteStr}
+
+OCASIONES PARA COMPARTIR:
+{$occStr}
+
+LUGARES (bitácora):
+{$placeStr}
 TXT;
 }
 
@@ -517,11 +595,20 @@ CÓMO ACTÚAS — lo más importante
   • "usé / gasté / se acabó / se terminó X" → ajusta el stock hacia abajo.
   • "compré X" → agrégalo a la despensa (combínalo si ya existe). Solo pregunta si falta la cantidad o la presentación.
   • "agrega X a la lista" → agrégalo a la lista de compras.
-  • un cambio en un día del plan → aplícalo con plan_ajustar.
+  • "corrige el precio de X" / "X cuesta \$N en tal tienda" → precio_fijar sobre el ítem de la lista de compras.
+  • un cambio en la plantilla semanal ("los jueves quiero Y") → plan_ajustar.
+  • un cambio para una FECHA concreta, hoy o futura ("mañana ceno Y", "cambia la merienda del jueves 4") → comida_registrar con esa fecha (estado="planificada" si aún no pasó). NO uses plan_ajustar para una fecha puntual.
+  • "en realidad comí Y" / "no, fue Y" → vuelve a llamar comida_registrar con el mismo día y tipo; reemplaza la anterior y corrige el stock. No hace falta borrar nada.
+  • "para noche de pelis / cuando venga gente / para desayunar con alguien se me antoja Z" → ocasion_idea_agregar (crea la ocasión si no existe).
+  • "fui a X, pídete Y" / "ya conozco X, es bueno" → descubrimiento_actualizar (márcalo visitado + qué pedir); si el lugar no existe aún, descubrimiento_agregar con ya_fui=true.
 - Pide confirmación SOLO para acciones destructivas: borrar un producto entero, borrar una comida ya registrada, reemplazar todo el plan de la semana, o quitar ítems de la lista. Esas herramientas devuelven estado "requiere_confirmacion": ahí pregunta breve y vuelve a llamarlas con confirmado=true.
 - Si el nombre o la cantidad es ambiguo (la herramienta devuelve "ambiguo" con varios candidatos), pregunta cuál. Eso es análisis, no permiso.
 - "comí fuera / en la calle / en un restaurante / pedí a domicilio" → registra la comida con lugar="fuera" y NO descuentes nada de la despensa.
 - Si {$nombre} no da cantidades al registrar una comida, descuenta la proteína principal por el valor de "porciones_por_comida"; no inventes cantidades de arroz o verduras: menciónalo si hace falta.
+
+NO MIENTAS SOBRE LO QUE HICISTE
+- NUNCA digas "listo", "guardado", "corregido", "actualicé" o "cambié" si en ESTA conversación la herramienta correspondiente no devolvió estado "ok". Si devolvió "error", "no_encontrado" o no llegaste a llamarla, dilo claro y ofrece la alternativa (p. ej. "ese producto no está en la lista; ¿lo agrego?").
+- Si una acción necesita varias herramientas, llámalas todas antes de responder. No prometas hacerlo "ahora".
 
 PRIORIDADES
 1. Usa primero lo que vence pronto.  2. Luego lo que ya está en casa.  3. Evita compras innecesarias.
@@ -602,10 +689,10 @@ function assistant_tools(): array
             'confirmado' => $b('true solo cuando el usuario ya confirmó'),
         ], ['item', 'motivo']),
 
-        $tool('comida_registrar', 'Registra una comida (consumida o planificada). Si es consumida y en casa, descuenta los ingredientes de la despensa automáticamente.', [
+        $tool('comida_registrar', 'Registra —o CORRIGE— una comida (consumida o planificada). Si ya hay una comida de ese mismo día y tipo, la reemplaza (y deshace el descuento de stock anterior antes de aplicar el nuevo). Usa esto también para "no, en realidad comí X" o "cambia la merienda del jueves a Y". Si es consumida y en casa, descuenta los ingredientes de la despensa automáticamente.', [
             'tipo' => $s('tipo de comida', $tipos),
             'nombre' => $s('qué se comió, ej. "pollo frito con ensalada y choclos"'),
-            'fecha' => $s('opcional YYYY-MM-DD; por defecto hoy'),
+            'fecha' => $s('opcional YYYY-MM-DD; por defecto hoy. Acepta fechas futuras para planificar.'),
             'personas' => $i('opcional; por defecto el valor de preferencia "personas"'),
             'lugar' => $s('dónde', ['casa', 'fuera', 'comprado']),
             'estado' => $s('consumida (ya se comió) o planificada', ['consumida', 'planificada']),
@@ -618,6 +705,7 @@ function assistant_tools(): array
                 ], 'required' => ['item']],
             ],
             'descontar' => $b('por defecto true; false para registrar sin tocar el stock'),
+            'reemplazar' => $b('si ya hay una comida de ese día y tipo, la reemplaza. Por defecto true para desayuno/almuerzo/merienda/cena y false para snack. Pon false para añadir una comida extra sin borrar la anterior.'),
         ], ['tipo', 'nombre']),
 
         $tool('comida_eliminar', 'Borra una comida registrada. DESTRUCTIVO: requiere confirmación.', [
@@ -626,7 +714,7 @@ function assistant_tools(): array
             'confirmado' => $b('true solo cuando el usuario ya confirmó'),
         ], ['id']),
 
-        $tool('plan_ajustar', 'Crea o reemplaza una comida del plan semanal (plantilla) para un día y tipo.', [
+        $tool('plan_ajustar', 'Crea o reemplaza una comida de la PLANTILLA semanal para un día y tipo (afecta ese día de la semana en general, todas las semanas). Para cambiar solo una fecha puntual usa comida_registrar con estado="planificada" y esa fecha.', [
             'dia' => $s('día de la semana', $dias),
             'tipo' => $s('tipo de comida', ['Desayuno', 'Almuerzo', 'Merienda', 'Cena']),
             'titulo' => $s('qué se planifica'),
@@ -674,6 +762,21 @@ function assistant_tools(): array
             'mover_a_despensa' => $b('por defecto true'),
         ], ['items']),
 
+        $tool('precio_fijar', 'Fija o corrige los precios por tienda de un ítem de la lista de compras. Para "el pan cuesta $1.20 en Tía", "corrige el precio del atún", "en Super Maxi la leche está a 1.35". La lista ya muestra precios de referencia por tienda en todos los ítems; usa esto para corregirlos con un dato real.', [
+            'item' => $s('nombre o id del ítem en la lista de compras'),
+            'precios' => [
+                'type' => 'array',
+                'description' => 'uno o más precios por tienda',
+                'items' => ['type' => 'object', 'properties' => [
+                    'tienda' => $s('tienda registrada del hogar: ' . implode(', ', SHOP_STORES) . ' (u otra si el usuario la nombra)'),
+                    'precio' => $s('precio. Total por pieza: "$1.20". Precio de lote / paquete: "$1.00/pack 8 un" (=$1 por un paquete de 8; el total suma ceil(cantidad/8) paquetes). Tarifa a granel: "$3.80/lb".'),
+                    'mejor' => $b('opcional: marca este como el mejor precio'),
+                ], 'required' => ['tienda', 'precio']],
+            ],
+            'periodo' => $s('opcional; por defecto "1 semana"'),
+            'reemplazar' => $b('por defecto true (reemplaza toda la lista de precios del ítem); false para combinar con los que ya tenía'),
+        ], ['item', 'precios']),
+
         $tool('recetas_consultar', 'Lee el recetario guardado.', [
             'busqueda' => $s('opcional: texto a buscar en título o descripción'),
         ]),
@@ -706,12 +809,40 @@ function assistant_tools(): array
             'modo' => $s('sumar (default) o fijar', ['sumar', 'fijar']),
         ]),
 
-        $tool('descubrimiento_agregar', 'Guarda un lugar / restaurante / mercado para probar en la ciudad.', [
-            'titulo' => $s('nombre del lugar o plato'),
+        $tool('descubrimiento_agregar', 'Guarda un lugar / restaurante / mercado en la bitácora. Úsalo tanto para algo "por probar" como para un sitio donde el usuario YA fue (pon ya_fui=true y qué_pedir).', [
+            'titulo' => $s('nombre del lugar'),
             'fuente' => $s('opcional: Instagram, Facebook, recomendación...'),
             'link' => $s('opcional: URL'),
             'meta' => $s('opcional: zona, horario, nota corta'),
+            'que_pedir' => $s('opcional: nota a futuro de qué pedir ahí, ej. "los camarones apanados, no el arroz marinero"'),
+            'ya_fui' => $b('opcional: true si el usuario ya visitó el lugar (va a "Mis lugares" en vez de "Por probar")'),
         ], ['titulo']),
+
+        $tool('descubrimiento_actualizar', 'Actualiza un lugar que YA está en la bitácora: márcalo como visitado y/o ponle o cambia la nota de qué pedir. Para "fui a X, pídete Y" o "ya conozco X".', [
+            'lugar' => $s('nombre (o parte) del lugar en la bitácora'),
+            'que_pedir' => $s('opcional: qué pedir ahí'),
+            'ya_fui' => $b('opcional: true para marcarlo como visitado (por defecto true)'),
+            'rating' => $i('opcional: estrellas 0-5'),
+        ], ['lugar']),
+
+        $tool('ocasion_guardar', 'Crea o actualiza una "ocasión para compartir" (tarjeta de ideas por situación: noche de pelis, desayuno con alguien, cuando viene gente...). Si ya existe una con ese título, la actualiza.', [
+            'titulo' => $s('nombre de la ocasión, ej. "Cumpleaños en casa"'),
+            'emoji' => $s('opcional: un emoji para la tarjeta'),
+            'subtitulo' => $s('opcional: descripción corta'),
+        ], ['titulo']),
+
+        $tool('ocasion_idea_agregar', 'Agrega una o más ideas de comida a una ocasión. Si la ocasión no existe, la crea. Para "para noche de pelis se me antojan nachos" o "cuando venga gente podríamos pedir pizza".', [
+            'ocasion' => $s('título, slug o id de la ocasión'),
+            'ideas' => [
+                'type' => 'array',
+                'items' => ['type' => 'object', 'properties' => [
+                    'label' => $s('la idea, ej. "Nachos con guacamole"'),
+                    'detalle' => $s('opcional: nota corta, ej. "sin cocción"'),
+                    'lugar' => $s('donde se resuelve', ['casa', 'fuera']),
+                    'precio' => $s('opcional: precio o texto de costo, ej. "$4 a domicilio", "En casa · $0 extra"'),
+                ], 'required' => ['label']],
+            ],
+        ], ['ocasion', 'ideas']),
     ];
 }
 
@@ -733,6 +864,23 @@ function ali_slugify(string $s): string
     $t = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $t ?: $s));
     $t = trim($t, '-');
     return $t !== '' ? substr($t, 0, 90) : 'receta-' . substr(md5($s . microtime()), 0, 6);
+}
+
+/** Encuentra una ocasión por id, slug o parte del título. null si no hay match claro. */
+function ali_occasion_resolve(string $ref): ?array
+{
+    $ref = trim($ref);
+    if ($ref === '') {
+        return null;
+    }
+    if (ctype_digit($ref)) {
+        return q_one('SELECT * FROM occasions WHERE id = ?', [(int) $ref]);
+    }
+    $exact = q_one('SELECT * FROM occasions WHERE slug = ? OR LOWER(title) = LOWER(?)', [ali_slugify($ref), $ref]);
+    if ($exact) {
+        return $exact;
+    }
+    return q_one('SELECT * FROM occasions WHERE LOWER(title) LIKE ? ORDER BY sort_order, id LIMIT 1', ['%' . mb_strtolower($ref) . '%']);
 }
 
 /**
@@ -912,6 +1060,23 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                 $personas = (int) ($args['personas'] ?? (int) pref_get('personas', '1')) ?: 1;
                 $descontar = ($args['descontar'] ?? true) !== false;
 
+                // ¿Reemplazar una comida ya registrada de ese día/tipo? Por defecto sí
+                // para las comidas principales (corregir "en realidad comí X"), no para
+                // los snacks (que suelen acumularse). Se deshace su descuento anterior.
+                $reemplazar = array_key_exists('reemplazar', $args) ? ($args['reemplazar'] !== false) : ($tipo !== 'snack');
+                $reemplazada = null;
+                if ($reemplazar) {
+                    $prev = q_one('SELECT * FROM meals WHERE log_date = ? AND meal_type = ? ORDER BY id DESC LIMIT 1', [$fecha, $tipo]);
+                    if ($prev) {
+                        if ($prev['status'] === 'consumida' && $prev['place'] === 'casa') {
+                            meal_restore_stock((int) $prev['id']);
+                            $touch('pantry');
+                        }
+                        q_exec('DELETE FROM meals WHERE id = ?', [(int) $prev['id']]); // cascada -> meal_items
+                        $reemplazada = (string) $prev['name'];
+                    }
+                }
+
                 q_exec(
                     'INSERT INTO meals (log_date, meal_type, name, servings, place, status) VALUES (?,?,?,?,?,?)',
                     [$fecha, $tipo, $nombre, $personas, $lugar, $estado]
@@ -979,15 +1144,19 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                 }
 
                 $okD = array_values(array_filter($descuentos, fn($d) => ($d['estado'] ?? '') === 'ok'));
+                $verbo = $reemplazada !== null && ali_deaccent($reemplazada) !== ali_deaccent($nombre) ? 'Corregí' : ($estado === 'planificada' ? 'Planifiqué' : 'Registré');
                 $resumen = $estado === 'planificada'
-                    ? "Planifiqué {$tipo}: {$nombre}"
+                    ? "{$verbo} {$tipo} ({$fecha}): {$nombre}"
                     : ($lugar !== 'casa'
-                        ? "Registré {$tipo} fuera de casa: {$nombre} (sin tocar la despensa)"
-                        : "Registré {$tipo}: {$nombre}" . ($okD ? ' · descché ' . implode(', ', array_map(fn($d) => "{$d['item']} → {$d['ahora']}", $okD)) : ''));
+                        ? "{$verbo} {$tipo} fuera de casa: {$nombre} (sin tocar la despensa)"
+                        : "{$verbo} {$tipo}: {$nombre}" . ($okD ? ' · descché ' . implode(', ', array_map(fn($d) => "{$d['item']} → {$d['ahora']}", $okD)) : ''));
+                if ($reemplazada !== null && ali_deaccent($reemplazada) !== ali_deaccent($nombre)) {
+                    $resumen .= " (antes: {$reemplazada})";
+                }
                 $act($resumen);
-                ali_log_event($name, $resumen, $args + ['descuentos' => $descuentos]);
+                ali_log_event($name, $resumen, $args + ['descuentos' => $descuentos, 'reemplazada' => $reemplazada]);
 
-                return ['estado' => 'ok', 'comida_id' => $mealId, 'registrada' => $resumen, 'descuentos' => $descuentos];
+                return ['estado' => 'ok', 'comida_id' => $mealId, 'registrada' => $resumen, 'reemplazo_a' => $reemplazada, 'descuentos' => $descuentos];
             }
 
             case 'comida_eliminar': {
@@ -1001,17 +1170,7 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                         'resumen' => "Vas a borrar la comida «{$meal['meal_type']}: {$meal['name']}» del {$meal['log_date']}. ¿Confirmas?"];
                 }
                 if (!empty($args['reponer_stock'])) {
-                    foreach (q_all('SELECT * FROM meal_items WHERE meal_id = ? AND deducted = 1 AND pantry_item_id IS NOT NULL', [$id]) as $mi) {
-                        $p = q_one('SELECT * FROM pantry_items WHERE id = ?', [(int) $mi['pantry_item_id']]);
-                        if ($p && $mi['qty_text'] !== '') {
-                            $back = qty_convert(qty_parse($mi['qty_text'])['value'], qty_parse($mi['qty_text'])['unit'], (string) $p['qty_unit'], (string) $p['category']);
-                            if ($back !== null && $p['qty_value'] !== null) {
-                                $nv = round((float) $p['qty_value'] + $back, 2);
-                                q_exec('UPDATE pantry_items SET qty_value = ?, quantity = ?, status = \'ok\' WHERE id = ?',
-                                    [$nv, qty_format($nv, (string) $p['qty_unit']), (int) $p['id']]);
-                            }
-                        }
-                    }
+                    meal_restore_stock($id);
                     $touch('pantry');
                 }
                 q_exec('DELETE FROM meals WHERE id = ?', [$id]);
@@ -1160,6 +1319,91 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                 return ['estado' => 'ok', 'comprados' => $done, 'movidos_a_despensa' => $mover];
             }
 
+            case 'precio_fijar': {
+                $periodo = trim((string) ($args['periodo'] ?? '1 semana')) ?: '1 semana';
+                $ref = trim((string) ($args['item'] ?? ''));
+                if ($ref === '') {
+                    return ['estado' => 'error', 'mensaje' => 'Falta el ítem al que ponerle precio.'];
+                }
+                $row = ctype_digit($ref)
+                    ? q_one('SELECT * FROM shopping_list_items WHERE id = ? AND period = ?', [(int) $ref, $periodo])
+                    : q_one('SELECT * FROM shopping_list_items WHERE period = ? AND LOWER(name) LIKE ? ORDER BY sort_order', [$periodo, '%' . mb_strtolower($ref) . '%']);
+                if (!$row) {
+                    return ['estado' => 'no_encontrado', 'mensaje' => "«{$ref}» no está en la lista de compras ({$periodo}). Agrégalo con lista_agregar si quieres registrarle un precio."];
+                }
+
+                $in = is_array($args['precios'] ?? null) ? $args['precios'] : [];
+                $nuevos = [];
+                foreach ($in as $p) {
+                    $tienda = trim((string) ($p['tienda'] ?? ''));
+                    $precio = trim((string) ($p['precio'] ?? ''));
+                    if ($tienda === '' || $precio === '') {
+                        continue;
+                    }
+                    // "1.35" -> "$1.35"; deja intactos "$3.80/lb", "$1,20", etc.
+                    if ($precio[0] !== '$') {
+                        $norm = str_replace(',', '.', $precio);
+                        if (is_numeric($norm)) {
+                            $precio = '$' . number_format((float) $norm, 2, '.', '');
+                        }
+                    }
+                    $entry = ['store' => $tienda, 'price' => $precio];
+                    if (!empty($p['mejor'])) {
+                        $entry['best'] = true;
+                    }
+                    $nuevos[] = $entry;
+                }
+                if (!$nuevos) {
+                    return ['estado' => 'error', 'mensaje' => 'No diste ningún precio válido (tienda + precio).'];
+                }
+
+                $base = ($args['reemplazar'] ?? true) === false
+                    ? (json_decode((string) $row['prices'], true) ?: [])
+                    : [];
+                $byStore = [];
+                foreach ($base as $e) {
+                    $byStore[mb_strtolower((string) ($e['store'] ?? ''))] = $e;
+                }
+                foreach ($nuevos as $e) {
+                    $byStore[mb_strtolower($e['store'])] = $e;
+                }
+                $merged = array_values($byStore);
+
+                // Exactamente un "best": si el usuario no marcó ninguno, el más barato.
+                $seenBest = false;
+                foreach ($merged as $k => &$m) {
+                    if (!empty($m['best'])) {
+                        if ($seenBest) {
+                            unset($m['best']);
+                        } else {
+                            $seenBest = true;
+                        }
+                    }
+                }
+                unset($m);
+                if (!$seenBest) {
+                    $cheapIdx = null;
+                    $cheap = INF;
+                    foreach ($merged as $k => $m) {
+                        $n = (float) preg_replace('/[^\d.]/', '', str_replace(',', '.', (string) $m['price']));
+                        if ($n > 0 && $n < $cheap) {
+                            $cheap = $n;
+                            $cheapIdx = $k;
+                        }
+                    }
+                    if ($cheapIdx !== null) {
+                        $merged[$cheapIdx]['best'] = true;
+                    }
+                }
+
+                q_exec('UPDATE shopping_list_items SET prices = ? WHERE id = ?', [json_encode($merged, JSON_UNESCAPED_UNICODE), (int) $row['id']]);
+                shopping_total_recalc($periodo);
+                $touch('list');
+                $act("Precio {$row['name']}: " . implode(' / ', array_map(fn($m) => "{$m['store']} {$m['price']}" . (!empty($m['best']) ? ' ✓' : ''), $merged)));
+                ali_log_event($name, "precio {$row['name']}", $args);
+                return ['estado' => 'ok', 'item' => $row['name'], 'periodo' => $periodo, 'precios' => $merged];
+            }
+
             // ---- recetas / preferencias / notas / nutrición / lugares ----
             case 'receta_guardar': {
                 $titulo = trim((string) ($args['titulo'] ?? ''));
@@ -1249,13 +1493,109 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                 if ($titulo === '') {
                     return ['estado' => 'error', 'mensaje' => 'falta el título'];
                 }
-                q_exec('INSERT INTO discoveries (title, source, link, meta, gradient) VALUES (?,?,?,?,?)',
+                $yaFui = !empty($args['ya_fui']) ? 1 : 0;
+                $quePedir = trim((string) ($args['que_pedir'] ?? ''));
+                q_exec('INSERT INTO discoveries (title, source, link, meta, gradient, visited, dish_note) VALUES (?,?,?,?,?,?,?)',
                     [$titulo, (string) ($args['fuente'] ?? ''), (string) ($args['link'] ?? ''), (string) ($args['meta'] ?? ''),
-                        'linear-gradient(135deg,#DAE8D4,#4A7856)']);
+                        'linear-gradient(135deg,#DAE8D4,#4A7856)', $yaFui, $quePedir]);
                 $touch('discoveries');
-                $act("Guardé el lugar: {$titulo}");
+                $donde = $yaFui ? 'Mis lugares' : 'Por probar';
+                $act("Guardé el lugar ({$donde}): {$titulo}" . ($quePedir !== '' ? " — pedir: {$quePedir}" : ''));
                 ali_log_event($name, "lugar {$titulo}", $args);
-                return ['estado' => 'ok', 'guardado' => $titulo];
+                return ['estado' => 'ok', 'guardado' => $titulo, 'seccion' => $donde];
+            }
+
+            case 'descubrimiento_actualizar': {
+                $ref = trim((string) ($args['lugar'] ?? ''));
+                if ($ref === '') {
+                    return ['estado' => 'error', 'mensaje' => 'falta el nombre del lugar'];
+                }
+                $row = ctype_digit($ref)
+                    ? q_one('SELECT * FROM discoveries WHERE id = ?', [(int) $ref])
+                    : q_one('SELECT * FROM discoveries WHERE LOWER(title) LIKE ? ORDER BY id LIMIT 1', ['%' . mb_strtolower($ref) . '%']);
+                if (!$row) {
+                    return ['estado' => 'no_encontrado', 'mensaje' => "«{$ref}» no está en la bitácora. Agrégalo con descubrimiento_agregar."];
+                }
+                $visited = array_key_exists('ya_fui', $args) ? (!empty($args['ya_fui']) ? 1 : 0) : 1;
+                $dishNote = array_key_exists('que_pedir', $args) ? trim((string) $args['que_pedir']) : (string) $row['dish_note'];
+                $rating = (isset($args['rating']) && is_numeric($args['rating']))
+                    ? max(0, min(5, (int) $args['rating']))
+                    : (int) $row['rating'];
+                q_exec('UPDATE discoveries SET visited = ?, dish_note = ?, rating = ? WHERE id = ?',
+                    [$visited, $dishNote, $rating, (int) $row['id']]);
+                $touch('discoveries');
+                $act("Lugar: {$row['title']} → " . ($visited ? 'ya fui' : 'por probar') . ($dishNote !== '' ? " · pedir: {$dishNote}" : ''));
+                ali_log_event($name, "actualizó lugar {$row['title']}", $args);
+                return ['estado' => 'ok', 'lugar' => $row['title'], 'visitado' => (bool) $visited, 'que_pedir' => $dishNote];
+            }
+
+            case 'ocasion_guardar': {
+                $titulo = trim((string) ($args['titulo'] ?? ''));
+                if ($titulo === '') {
+                    return ['estado' => 'error', 'mensaje' => 'falta el título'];
+                }
+                $occ = ali_occasion_resolve($titulo);
+                if ($occ) {
+                    $sets = [];
+                    $params = [];
+                    if (array_key_exists('emoji', $args)) { $sets[] = 'emoji = ?'; $params[] = (string) $args['emoji']; }
+                    if (array_key_exists('subtitulo', $args)) { $sets[] = 'subtitle = ?'; $params[] = (string) $args['subtitulo']; }
+                    if ($sets) {
+                        $params[] = (int) $occ['id'];
+                        q_exec('UPDATE occasions SET ' . implode(', ', $sets) . ' WHERE id = ?', $params);
+                    }
+                    $touch('occasions');
+                    $act("Ocasión actualizada: {$titulo}");
+                    ali_log_event($name, "ocasión {$titulo}", $args);
+                    return ['estado' => 'ok', 'accion' => 'actualizada', 'ocasion' => $titulo, 'id' => (int) $occ['id']];
+                }
+                $slug = ali_slugify($titulo);
+                if (q_one('SELECT id FROM occasions WHERE slug = ?', [$slug])) {
+                    $slug .= '-' . substr((string) time(), -4);
+                }
+                $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM occasions')['m']);
+                q_exec('INSERT INTO occasions (slug, emoji, title, subtitle, sort_order) VALUES (?,?,?,?,?)',
+                    [$slug, (string) ($args['emoji'] ?? ''), $titulo, (string) ($args['subtitulo'] ?? ''), $max + 1]);
+                $touch('occasions');
+                $act("Nueva ocasión: {$titulo}");
+                ali_log_event($name, "ocasión {$titulo}", $args);
+                return ['estado' => 'ok', 'accion' => 'creada', 'ocasion' => $titulo, 'id' => last_id()];
+            }
+
+            case 'ocasion_idea_agregar': {
+                $ref = trim((string) ($args['ocasion'] ?? ''));
+                $ideas = is_array($args['ideas'] ?? null) ? $args['ideas'] : [];
+                if ($ref === '' || !$ideas) {
+                    return ['estado' => 'error', 'mensaje' => 'indica la ocasión y al menos una idea'];
+                }
+                $occ = ali_occasion_resolve($ref);
+                if (!$occ) {
+                    $slug = ali_slugify($ref);
+                    if (q_one('SELECT id FROM occasions WHERE slug = ?', [$slug])) {
+                        $slug .= '-' . substr((string) time(), -4);
+                    }
+                    $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM occasions')['m']);
+                    q_exec('INSERT INTO occasions (slug, emoji, title, subtitle, sort_order) VALUES (?,?,?,?,?)',
+                        [$slug, '', $ref, '', $max + 1]);
+                    $occ = q_one('SELECT * FROM occasions WHERE id = ?', [last_id()]);
+                }
+                $added = [];
+                $sort = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM occasion_items WHERE occasion_id = ?', [(int) $occ['id']])['m']);
+                foreach ($ideas as $idea) {
+                    $label = trim((string) ($idea['label'] ?? ''));
+                    if ($label === '') continue;
+                    $lugar = ($idea['lugar'] ?? 'casa') === 'fuera' ? 'fuera' : 'casa';
+                    q_exec('INSERT INTO occasion_items (occasion_id, label, detail, place, price, sort_order) VALUES (?,?,?,?,?,?)',
+                        [(int) $occ['id'], $label, (string) ($idea['detalle'] ?? ''), $lugar, (string) ($idea['precio'] ?? ''), ++$sort]);
+                    $added[] = $label;
+                }
+                if (!$added) {
+                    return ['estado' => 'error', 'mensaje' => 'ninguna idea válida'];
+                }
+                $touch('occasions');
+                $act("«{$occ['title']}»: + " . implode(', ', $added));
+                ali_log_event($name, "ideas en {$occ['title']}", $args);
+                return ['estado' => 'ok', 'ocasion' => $occ['title'], 'agregadas' => $added];
             }
 
             default:
@@ -1349,6 +1689,7 @@ function assistant_reply(string $message, array $history): array
     $tools = assistant_tools();
     $changed = [];
     $actions = [];
+    $issues = [];
     $final = '';
 
     for ($round = 0; $round < ALI_MAX_ROUNDS; $round++) {
@@ -1364,6 +1705,9 @@ function assistant_reply(string $message, array $history): array
             $rawArgs = $tc['function']['arguments'] ?? '{}';
             $parsed = json_decode(is_string($rawArgs) ? $rawArgs : '{}', true);
             $result = assistant_dispatch($fn, is_array($parsed) ? $parsed : [], $changed, $actions);
+            if (in_array($result['estado'] ?? '', ['error', 'no_encontrado'], true)) {
+                $issues[] = (string) ($result['mensaje'] ?? ('no se pudo ejecutar ' . $fn));
+            }
             $messages[] = [
                 'role' => 'tool',
                 'tool_call_id' => (string) ($tc['id'] ?? ''),
@@ -1382,9 +1726,13 @@ function assistant_reply(string $message, array $history): array
         }
     }
     if ($final === '') {
-        $final = $actions
-            ? 'Listo: ' . implode('. ', array_column($actions, 'resumen')) . '.'
-            : 'No pude completar eso. ¿Lo intentamos de otra forma?';
+        if ($actions) {
+            $final = 'Listo: ' . implode('. ', array_column($actions, 'resumen')) . '.';
+        } elseif ($issues) {
+            $final = 'No pude completarlo: ' . implode(' ', array_values(array_unique($issues)));
+        } else {
+            $final = 'No pude completar eso. ¿Lo intentamos de otra forma?';
+        }
     }
 
     return [

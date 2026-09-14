@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
+import { mergeMeals, toISODate } from '../meals.js';
+import Ocasiones from '../components/Ocasiones.jsx';
 
 const WEEKDAY_KEYS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -28,11 +30,12 @@ function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-export default function Plan({ onToast, onGoToList }) {
+export default function Plan({ onToast, onGoToList, onOpenChat }) {
   const today = new Date();
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(today);
   const [planByDay, setPlanByDay] = useState({});
+  const [dayMeals, setDayMeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('1 semana');
   const [generating, setGenerating] = useState(false);
@@ -40,6 +43,14 @@ export default function Plan({ onToast, onGoToList }) {
   useEffect(() => {
     api.plan.all().then(setPlanByDay).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    api.meals.list(toISODate(selected))
+      .then((rows) => { if (alive) setDayMeals(rows || []); })
+      .catch(() => { if (alive) setDayMeals([]); });
+    return () => { alive = false; };
+  }, [selected]);
 
   async function generarLista() {
     if (generating) return;
@@ -57,7 +68,7 @@ export default function Plan({ onToast, onGoToList }) {
 
   const grid = useMemo(() => buildGrid(cursor.getFullYear(), cursor.getMonth()), [cursor]);
   const selectedWeekday = WEEKDAY_KEYS[selected.getDay()];
-  const rows = planByDay[selectedWeekday] || [];
+  const rows = mergeMeals(planByDay[selectedWeekday] || [], dayMeals);
 
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
 
@@ -93,9 +104,12 @@ export default function Plan({ onToast, onGoToList }) {
         <div className="day-lbl">{selected.toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
         {rows.map((r) => (
           <div className="plan-row" key={r.id}>
-            <div className="plan-kind">{r.meal_type}</div>
+            <div className="plan-kind">{r.kind}</div>
             <div>
-              <div className="plan-rname">{r.title}</div>
+              <div className="plan-rname">
+                {r.title}
+                {r.tag && <span className="pill" style={{ marginLeft: 6 }}>{r.tag}</span>}
+              </div>
               {r.detail && <div className="plan-detail">{r.detail}</div>}
             </div>
           </div>
@@ -112,6 +126,8 @@ export default function Plan({ onToast, onGoToList }) {
       <button className="cta-btn" onClick={generarLista} disabled={generating} style={generating ? { opacity: 0.6 } : undefined}>
         {generating ? 'Generando…' : `Generar lista · ${period} →`}
       </button>
+
+      <Ocasiones onOpenChat={onOpenChat} onToast={onToast} />
     </div>
   );
 }

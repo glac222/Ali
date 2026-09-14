@@ -8,10 +8,51 @@ function bestPrice(it) {
   const list = it.prices || [];
   return list.find((p) => p.best) || list[0] || null;
 }
+
+// Descompone un precio de texto. Mismo criterio que el backend
+// (shop_price_parse en php/src/shopping.php):
+//   "$1.20"           -> { amount: 1.2, pack: null }   precio total: se multiplica por qty
+//   "$1.00/pack 8 un" -> { amount: 1,   pack: 8 }      precio de lote: se pagan ceil(qty/8) paquetes
+//   "$3.80/lb" · "$0.30/un" -> null                    tarifa a granel sin conteo: no multiplicable
+function parsePrice(raw) {
+  const s = String(raw || '');
+  const m = s.match(/(\d+(?:[.,]\d+)?)/);
+  if (!m) return null;
+  const amount = parseFloat(m[1].replace(',', '.'));
+  if (!(amount > 0)) return null;
+  const after = s.slice(m.index + m[0].length).match(/(\d+(?:[.,]\d+)?)/);
+  if (after) {
+    const pack = parseFloat(after[1].replace(',', '.'));
+    if (pack >= 1) return { amount, pack };
+  }
+  if (s.includes('/')) return null; // "/lb", "/un": tarifa, no se puede multiplicar
+  return { amount, pack: null };
+}
+
+// Tamaño de lote del ítem (1 si su precio no es "por paquete").
+function packSize(it) {
+  const p = parsePrice(bestPrice(it)?.price);
+  return p && p.pack > 1 ? p.pack : 1;
+}
+
+// Lo que muestra el stepper: paquetes si hay precio de lote, si no unidades.
+function stepCount(it) {
+  const n = packSize(it);
+  return n > 1 ? Math.max(1, Math.ceil(Math.max(1, it.qty) / n)) : Math.max(1, it.qty);
+}
+
 function priceNum(it) {
-  const b = bestPrice(it);
-  const n = b ? parseFloat(String(b.price).replace(/[^\d.]/g, '')) : NaN;
-  return Number.isFinite(n) ? n : Infinity;
+  const p = parsePrice(bestPrice(it)?.price);
+  return p ? p.amount : Infinity;
+}
+
+// Costo de la línea: precio × cantidad (o × paquetes si es precio de lote).
+// null = precio no multiplicable -> cuenta como "sin precio" en el estimado.
+function lineCost(it) {
+  const p = parsePrice(bestPrice(it)?.price);
+  if (!p) return null;
+  const qty = Math.max(1, it.qty);
+  return p.pack > 1 ? p.amount * Math.max(1, Math.ceil(qty / p.pack)) : p.amount * qty;
 }
 
 export default function Lista() {
@@ -31,9 +72,19 @@ export default function Lista() {
   }
 
   async function step(item, delta) {
-    const qty = Math.max(0, item.qty + delta);
-    const updated = await api.shoppingList.update(item.id, { qty });
-    setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? updated : i)) }));
+    // Con precio de lote cada +/− es un paquete (qty se sigue guardando en unidades).
+    const n = packSize(item);
+    const count = n > 1 ? Math.ceil(Math.max(1, item.qty) / n) : item.qty;
+    const qty = Math.max(1, count + delta) * (n > 1 ? n : 1);
+    if (qty === item.qty) return;
+    // Optimista: el total (que se calcula desde los items) se mueve al instante.
+    setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? { ...i, qty } : i)) }));
+    try {
+      const updated = await api.shoppingList.update(item.id, { qty });
+      setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? updated : i)) }));
+    } catch {
+      setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }));
+    }
   }
 
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
@@ -57,6 +108,13 @@ export default function Lista() {
     groups[it.group_label].push(it);
   }
 
+  // Total en vivo: suma del costo de cada línea (precio × cantidad, o × paquetes
+  // si es precio de lote). Se recalcula en cada render, así los +/− lo mueven ya.
+  const costs = data.items.map(lineCost);
+  const sumTotal = costs.reduce((s, c) => s + (c || 0), 0);
+  const sinPrecio = costs.filter((c) => c == null).length;
+  const estimado = costs.some((c) => c != null) ? `$${sumTotal.toFixed(2)}` : '—';
+
   return (
     <div className="screen active">
       <div className="top-row"><div className="top-title">Lista de compras</div><div className="avatar">{data.items.length}</div></div>
@@ -70,7 +128,8 @@ export default function Lista() {
       <div className="list-summary">
         <div>
           <div className="lbl-s">Estimado · {period}</div>
-          <div className="amt-big">{data.total || '—'}</div>
+          <div className="amt-big">{estimado}</div>
+          {sinPrecio > 0 && <div className="lbl-s" style={{ color: 'var(--faint)' }}>{sinPrecio} sin precio</div>}
         </div>
         <select className="period-select" value={sort} onChange={(e) => setSort(e.target.value)}>
           {SORTS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -91,7 +150,7 @@ export default function Lista() {
                 <div className="si-name">{it.name}</div>
                 <div className="stepper">
                   <button onClick={() => step(it, -1)}>−</button>
-                  <span className="n">{it.qty}</span>
+                  <span className="n">{stepCount(it)}</span>
                   <button onClick={() => step(it, 1)}>+</button>
                 </div>
               </div>
@@ -99,6 +158,7 @@ export default function Lista() {
                 {it.prices.map((p, i) => (
                   <span key={i} className={'ptag' + (p.best ? ' best' : '')}>{p.store} {p.price}</span>
                 ))}
+                {lineCost(it) != null && <span className="ptag sub">= ${lineCost(it).toFixed(2)}</span>}
               </div>
             </div>
           ))}

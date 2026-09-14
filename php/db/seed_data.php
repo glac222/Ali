@@ -35,7 +35,7 @@ return [
             'slug' => 'batido',
             'title' => 'Batido de guineo con leche o yogurt',
             'description' => 'Guineo maduro + leche entera (o yogurt) en licuadora. Porción grande: 2 guineos + 1 vaso grande. Variante: añadir avena para más saciedad.',
-            'tags' => ['Sin cocción', '3 min', 'Desayuno opcional'],
+            'tags' => ['Sin cocción', '3 min', 'Desayuno'],
             'time_label' => '3 min',
             'gradient' => 'linear-gradient(160deg,#F5E9C8,#C8A03A)',
             'ings' => ['Guineos — 1-2 unidades', 'Leche entera o yogurt — 1 vaso grande'],
@@ -45,7 +45,7 @@ return [
             'slug' => 'sandwich',
             'title' => '3 sándwiches: queso crema + jamón + tortilla',
             'description' => 'Tortilla de 4 huevos frita plana en sartén. Pan molde con queso crema y jamón de pavo. Armar 3 sándwiches. Rápido y muy contundente.',
-            'tags' => ['Freír tortilla', '12 min', 'Desayuno opcional'],
+            'tags' => ['Freír tortilla', '12 min', 'Desayuno'],
             'time_label' => '12 min',
             'gradient' => 'linear-gradient(160deg,#EBF5EF,#4A8F68)',
             'ings' => ['Huevos — 4 unidades', 'Pan molde — 6 rebanadas', 'Queso crema — al gusto', 'Jamón de pavo — 3-4 rebanadas'],
@@ -85,22 +85,24 @@ return [
 
     'plan' => [
         // [weekday, meal_type, title, detail, optional]
-        ['lunes', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Opcional — rápido y contundente', 1],
+        // El desayuno NO es opcional: de lunes a sábado es el de siempre
+        // (batido + sándwiches); el domingo, encebollado comprado.
+        ['lunes', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Rápido y contundente', 0],
         ['lunes', 'Almuerzo', 'Pollo frito + ensalada (lechuga, tomate, aguacate) + choclos', 'Sin arroz · 3 cuerpos en el plato', 0],
         ['lunes', 'Merienda', 'Atún + cebolla + tomate + limón', 'Sin cocción', 0],
-        ['martes', 'Desayuno', 'Batido o sándwiches — opcional', 'Según el tiempo disponible', 1],
+        ['martes', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Rápido y contundente', 0],
         ['martes', 'Almuerzo', 'Bistec de res frito + arroz + menestra', 'Freír bistec con sal y ajo', 0],
         ['martes', 'Merienda', 'Pollo frito + ensalada lechuga y tomate', 'Freír presas', 0],
-        ['miercoles', 'Desayuno', 'Opcional', '', 1],
+        ['miercoles', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Rápido y contundente', 0],
         ['miercoles', 'Almuerzo', 'Hígado frito (solo sal, sin cebolla) + arroz + menestra', 'Úsalo hoy — lleva 2 días', 0],
         ['miercoles', 'Merienda', 'Sardinas en tomate + arroz + medio aguacate', 'Abrir lata', 0],
-        ['jueves', 'Desayuno', 'Opcional', '', 1],
+        ['jueves', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Rápido y contundente', 0],
         ['jueves', 'Almuerzo', 'Pescado frito + ensalada + limón', 'Freír con sal y ajo', 0],
         ['jueves', 'Merienda', 'Puré de papas + arroz + carne frita', 'Puré siempre con arroz', 0],
-        ['viernes', 'Desayuno', 'Opcional', '', 1],
+        ['viernes', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Rápido y contundente', 0],
         ['viernes', 'Almuerzo', 'Camarones fritos al ajo + arroz + ensalada tomate', '3 min por lado', 0],
         ['viernes', 'Merienda', 'Carne en trozos + tomate + pimiento + arroz', 'Salsita rápida', 0],
-        ['sabado', 'Desayuno', 'Opcional', '', 1],
+        ['sabado', 'Desayuno', 'Batido guineo+leche · 3 sándwiches queso crema+jamón+tortilla', 'Rápido y contundente', 0],
         ['sabado', 'Almuerzo', 'Chancho frito + arroz + menestra + ensalada', '', 0],
         ['sabado', 'Merienda', 'Arroz + tortilla de huevo + salchicha', '', 0],
         ['domingo', 'Desayuno', 'Encebollado comprado (dosis doble) + chifle + pan', 'No preparar — comprar hecho', 0],
@@ -118,20 +120,72 @@ return [
 
     'shopping_items' => [
         // [group_label, name, qty, checked, prices]
-        ['Urgentes', 'Pan molde integral', 1, 0, [['store' => 'Supermaxi', 'price' => '$1.45', 'best' => true], ['store' => 'Mi Comisariato', 'price' => '$1.60']]],
-        ['Urgentes', 'Leche entera', 2, 0, [['store' => 'Mi Comisariato', 'price' => '$1.05', 'best' => true], ['store' => 'Supermaxi', 'price' => '$1.20'], ['store' => 'Tía', 'price' => '$1.15']]],
-        ['Carnes', 'Camarones pelados', 1, 0, [['store' => 'Puerto Durán', 'price' => '$3.80/lb', 'best' => true], ['store' => 'Supermaxi', 'price' => '$5.50/lb']]],
-        ['Carnes', 'Chuleta de chancho', 3, 0, [['store' => 'Mercado Urdesa', 'price' => '$2.10', 'best' => true], ['store' => 'Supermaxi', 'price' => '$2.90']]],
-        ['Carnes', 'Aguacate', 4, 1, [['store' => 'Mercado Urdesa', 'price' => '$0.30/un', 'best' => true]]],
-        ['Desayuno', 'Guineos para batido', 8, 0, [['store' => 'Mercado Urdesa', 'price' => '$0.15/un', 'best' => true], ['store' => 'Supermaxi', 'price' => '$0.25/un']]],
-        ['Desayuno', 'Queso crema', 2, 0, [['store' => 'Mi Comisariato', 'price' => '$2.30', 'best' => true], ['store' => 'Supermaxi', 'price' => '$2.70']]],
+        // Los precios base los pone el catálogo de referencia (php/src/shopping.php);
+        // aquí solo dejamos algunos cargados a mano de ejemplo (tiendas registradas).
+        ['Urgentes', 'Pan molde integral', 1, 0, [['store' => 'Super Maxi', 'price' => '$1.45', 'best' => true], ['store' => 'Mi Comisariato', 'price' => '$1.60']]],
+        ['Urgentes', 'Leche entera', 2, 0, [['store' => 'Mi Comisariato', 'price' => '$1.05', 'best' => true], ['store' => 'Super Maxi', 'price' => '$1.20'], ['store' => 'Tía', 'price' => '$1.15']]],
+        ['Carnes', 'Camarones pelados', 1, 0, []],
+        ['Carnes', 'Chuleta de chancho', 3, 0, [['store' => 'Mercado', 'price' => '$2.10', 'best' => true], ['store' => 'Super Maxi', 'price' => '$2.90']]],
+        ['Carnes', 'Aguacate', 4, 1, []],
+        ['Desayuno', 'Guineos para batido', 8, 0, []],
+        ['Desayuno', 'Queso crema', 2, 0, [['store' => 'Mi Comisariato', 'price' => '$2.30', 'best' => true], ['store' => 'Super Maxi', 'price' => '$2.70']]],
     ],
 
     'discoveries' => [
-        // [title, source, link, meta, rating, gradient]
-        ['Marisquería El Puerto — camarones', 'Instagram', 'https://instagram.com', 'Urdesa · Marisco fresco', 0, 'linear-gradient(135deg,#D5EDCC,#4A8F68)'],
-        ['Encebollado del Malecón — dosis doble', 'Facebook', 'https://facebook.com', 'Centro · desde 5am', 4, 'linear-gradient(135deg,#EAD9C8,#8F6A4A)'],
-        ['Mercado Urdesa — frescos directo', 'Instagram', 'https://instagram.com', 'Sáb 7am–1pm', 3, 'linear-gradient(135deg,#DAE8D4,#4A7856)'],
+        // [title, source, link, meta, rating, gradient, visited, dish_note]
+        // visited = 0 -> "por probar";  visited = 1 -> "mis lugares" (ya fui) + qué pedir
+        ['Marisquería El Puerto', 'Recomendación', '', 'Urdesa · marisco fresco', 5, 'linear-gradient(135deg,#D5EDCC,#4A8F68)', 1, 'Pídete los camarones apanados. El arroz marinero flojea.'],
+        ['Encebollado del Malecón', 'Ya lo conozco', '', 'Centro · desde 5am', 4, 'linear-gradient(135deg,#EAD9C8,#8F6A4A)', 1, 'Encebollado doble con el pan y el chifle aparte.'],
+        ['Bolonería de la 9 de Octubre', 'Ya lo conozco', '', 'Centro · mañanas', 4, 'linear-gradient(135deg,#F3E4C4,#C99A44)', 1, 'Bolón mixto (queso + chicharrón) y jugo de naranja.'],
+        ['Cangrejal del Sur', 'Instagram', 'https://instagram.com', 'Sur · fines de semana', 0, 'linear-gradient(135deg,#D5E4EF,#3A6A8F)', 0, ''],
+        ['Mercado de Urdesa — frescos directo', 'Instagram', 'https://instagram.com', 'Sáb 7am–1pm', 3, 'linear-gradient(135deg,#DAE8D4,#4A7856)', 0, ''],
+    ],
+
+    'occasions' => [
+        // [slug, emoji, title, subtitle, sort_order, items[]]
+        //   item: [label, detail, place ('casa'|'fuera'), price]
+        [
+            'noche-de-pelis', '🎬', 'Noche de pelis', 'Para picar mientras ven la peli', 0,
+            [
+                ['Sándwiches de atún', 'Pan + atún + tomate · sin cocción', 'casa', 'En casa · $0 extra'],
+                ['Trocitos de pollo fritos', 'Cubos de pechuga con sal y ajo · 5 min', 'casa', 'En casa · $0 extra'],
+                ['Canguil con mantequilla', 'Una olla, 4 min', 'casa', 'En casa · ~$0.50'],
+                ['Hot dog + papas fritas', 'Pedir a domicilio o ir a buscar', 'fuera', 'Hot dog $1.25 + papas $2.00 = $3.25'],
+                ['Hamburguesa completa', 'Más contundente para noche larga', 'fuera', 'Hamburguesa $3.00 + papas $2.00 = $5.00'],
+                ['Pizza familiar', 'Si son varios', 'fuera', '~$12 la familiar'],
+            ],
+        ],
+        [
+            'desayuno-con-alguien', '🫓', 'Desayuno con alguien', 'Salir a desayunar típico guayaco', 1,
+            [
+                ['Bolón mixto', 'Queso + chicharrón, con café', 'fuera', 'Bolón $2.75 + café $0.75'],
+                ['Humitas grandes', 'Para compartir', 'fuera', '3 por $5'],
+                ['Tigrillo', 'Verde majado con huevo y queso', 'fuera', '$3.50'],
+                ['Bollo de pescado', 'En hoja, bien lleno', 'fuera', '$2.50'],
+                ['Huevos revueltos + pan + café', 'Si desayunan en casa', 'casa', 'En casa · ~$1.50 los dos'],
+                ['Bolón casero', 'Con el verde que haya en casa', 'casa', 'En casa · ~$1'],
+            ],
+        ],
+        [
+            'visita-en-casa', '🏠', 'Cuando viene gente', 'Algo rápido para atender la visita', 2,
+            [
+                ['Picada de queso, chifles y maní', 'Se arma en 5 min', 'casa', 'En casa · ~$3'],
+                ['Sánduches de miga', 'Comprados, rinden bastante', 'fuera', '~$4 la docena'],
+                ['Canguil y gaseosa', 'Lo básico', 'casa', 'En casa · ~$2'],
+                ['Pizza familiar a domicilio', 'Si se quedan a la hora de comer', 'fuera', '~$12'],
+                ['Alitas para compartir', 'Con el pedido de pizza', 'fuera', '~$8 las 12'],
+            ],
+        ],
+        [
+            'antojo-de-finde', '🍢', 'Antojo de finde', 'Salir a picar sin plan fijo', 3,
+            [
+                ['Pinchos de la esquina', 'Con papa y ají', 'fuera', '$1.50 c/u'],
+                ['Salchipapa', 'Para compartir', 'fuera', '$3 la grande'],
+                ['Ceviche de concha', 'Bien picante', 'fuera', '~$5'],
+                ['Choclos con queso', 'Si se quedan en casa', 'casa', 'En casa · ~$1.50'],
+                ['Tostado con chicharrón', 'Para la tarde', 'casa', 'En casa · ~$2'],
+            ],
+        ],
     ],
 
     // nutrition_log de hoy: [calories, calories_target, protein, protein_target, carbs, carbs_target, fat, fat_target]
@@ -153,8 +207,8 @@ return [
         'electrodomesticos'     => 'sartén, olla, licuadora',
         'alergias'              => 'ninguna registrada',
         'no_le_gusta'           => 'cebolla encima del hígado; patacones en casa; menestra y ensalada en el mismo plato',
-        'supermercados'         => 'Supermaxi, Mi Comisariato, Mercado Urdesa, Puerto Durán, Tía',
-        'desayuno'              => 'opcional; batido de guineo + sándwiches cuando hay prisa',
-        'reglas_cocina'         => "1. Solo freír, hervir o abrir latas — sin sopas, sin horno, sin recetas complicadas.\n2. Porciones triples — no lo cuestiones.\n3. El arroz NO es obligatorio: puede ser proteína + ensalada + otro carbohidrato (choclo, puré).\n4. Encebollado: solo domingos al desayuno, y comprado hecho (no preparar).\n5. El puré siempre va con arroz, nunca solo.\n6. Menestra y ensalada no van juntas en el mismo plato.\n7. Sardinas nunca en el desayuno.\n8. Hígado sin cebolla encima.\n9. Sin patacones en casa (toma tiempo).\n10. El desayuno es OPCIONAL — batido + sándwiches es una opción rápida, no una obligación.",
+        'supermercados'         => 'Mi Comisariato, Super Maxi, Tía, Mercado, Tuti, Tienda',
+        'desayuno'              => 'de lunes a sábado: batido de guineo + 3 sándwiches (queso crema + jamón + tortilla); domingo: encebollado comprado. No es opcional.',
+        'reglas_cocina'         => "1. Solo freír, hervir o abrir latas — sin sopas, sin horno, sin recetas complicadas.\n2. Porciones triples — no lo cuestiones.\n3. El arroz NO es obligatorio: puede ser proteína + ensalada + otro carbohidrato (choclo, puré).\n4. Encebollado: solo domingos al desayuno, y comprado hecho (no preparar).\n5. El puré siempre va con arroz, nunca solo.\n6. Menestra y ensalada no van juntas en el mismo plato.\n7. Sardinas nunca en el desayuno.\n8. Hígado sin cebolla encima.\n9. Sin patacones en casa (toma tiempo).\n10. El desayuno NO es opcional: de lunes a sábado es batido de guineo + 3 sándwiches (queso crema + jamón + tortilla); el domingo, encebollado comprado.",
     ],
 ];

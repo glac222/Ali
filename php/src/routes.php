@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/chat.php';
+require __DIR__ . '/shopping.php';
 
 /**
  * Enrutador de la API. $path ya viene sin el prefijo /api (ej. "pantry/3").
@@ -41,6 +42,9 @@ function handle_api(string $method, string $path): void
 
         case 'discoveries':
             route_discoveries($method, $r(1), $r(2));
+
+        case 'occasions':
+            route_occasions($method, $r(1), $r(2), $r(3));
 
         case 'nutrition':
             route_nutrition($method, $r(1));
@@ -316,7 +320,13 @@ function route_plan(string $method, ?string $id): void
 // --- shopping-list --------------------------------------------------
 function shopping_item_out(array $row): array
 {
-    $row['prices'] = json_decode((string) $row['prices'], true) ?: [];
+    $prices = json_decode((string) $row['prices'], true) ?: [];
+    // Sin precio propio -> precios de referencia por tienda (catálogo en shopping.php).
+    // Así TODOS los ítems de la lista muestran precio. Un precio puesto a mano gana.
+    if (!$prices) {
+        $prices = shop_ref_prices_for_row($row);
+    }
+    $row['prices'] = $prices;
     $row['checked'] = as_bool($row['checked']);
     return $row;
 }
@@ -326,10 +336,13 @@ function route_shopping_list(string $method, ?string $id): void
     if ($method === 'GET' && $id === null) {
         $period = (string) ($_GET['period'] ?? '1 semana');
         $rows = q_all('SELECT * FROM shopping_list_items WHERE period = ? ORDER BY sort_order', [$period]);
-        $total = q_one('SELECT amount FROM shopping_list_totals WHERE period = ?', [$period]);
+        // El total es la suma real de (mejor precio × cantidad) de los ítems con
+        // precio cargado; ya no un número fijo de la tabla shopping_list_totals.
+        $totals = shopping_list_total($period, $rows);
         json_out([
             'period' => $period,
-            'total' => $total ? $total['amount'] : null,
+            'total' => $totals['amount'],
+            'total_note' => $totals['note'],
             'items' => array_map('shopping_item_out', $rows),
         ]);
     }
@@ -343,9 +356,9 @@ function route_shopping_list(string $method, ?string $id): void
         json_out($out ?: (object) []);
     }
 
-    // Genera la lista de forma determinista desde la despensa: cada producto
-    // agotado (re) o bajo mínimo (am) entra a la lista, con la cantidad escalada
-    // según el período. Solo toca los ítems source='auto'; respeta lo manual.
+    // Reconstruye los ítems source='auto' desde el PLAN semanal (ingredientes y
+    // cantidades escalados por período, menos lo que hay en despensa). Respeta lo
+    // manual. Implementación en php/src/shopping.php.
     if ($method === 'POST' && $id === 'generate') {
         json_out(shopping_list_generate((string) (body()['period'] ?? '1 semana')));
     }
@@ -396,90 +409,22 @@ function route_shopping_list(string $method, ?string $id): void
     fail('Método no permitido', 405);
 }
 
-/**
- * Genera la lista de compras de un período de forma DETERMINISTA (sin IA):
- * cada producto de la despensa agotado ('re') o bajo mínimo ('am') se agrega
- * a la lista con la cantidad escalada por el factor del período. Reconstruye
- * solo los ítems `source='auto'`; nunca toca lo que se puso a mano o por escáner,
- * y conserva el estado `checked` / `prices` de la generación anterior.
- */
-function shopping_list_generate(string $period): array
+// shopping_list_generate() (desde el plan) y shopping_list_total() viven en
+// php/src/shopping.php, requerido arriba.
+
+// --- discoveries: lugares (por probar / ya fui + qué pedir) --------
+function discovery_out(array $row): array
 {
-    $factor = [
-        '3 días' => 0.5, '1 semana' => 1.0, '2 semanas' => 2.0,
-        '3 semanas' => 3.0, '1 mes' => 4.0,
-    ];
-    if (!isset($factor[$period])) {
-        fail('period inválido: ' . $period);
-    }
-    $mult = $factor[$period];
-
-    $groupLabel = [
-        'carnes' => 'Carnes', 'lacteos' => 'Lácteos y pan', 'granos' => 'Granos',
-        'vegetales' => 'Vegetales', 'latas' => 'Latas y despensa',
-    ];
-
-    // Lo que la despensa necesita reponer.
-    $low = q_all("SELECT * FROM pantry_items WHERE status IN ('re', 'am') ORDER BY FIELD(status,'re','am'), category, name");
-
-    // Nombres ya presentes a mano / por escáner: no duplicar.
-    $manual = [];
-    foreach (q_all("SELECT name FROM shopping_list_items WHERE period = ? AND source <> 'auto'", [$period]) as $r) {
-        $manual[mb_strtolower($r['name'])] = true;
-    }
-    // Estado previo de los 'auto' para conservar lo ya marcado / sus precios.
-    $prev = [];
-    foreach (q_all("SELECT name, checked, prices FROM shopping_list_items WHERE period = ? AND source = 'auto'", [$period]) as $r) {
-        $prev[mb_strtolower($r['name'])] = $r;
-    }
-
-    q_exec("DELETE FROM shopping_list_items WHERE period = ? AND source = 'auto'", [$period]);
-
-    $sort = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [$period])['m']);
-    $created = 0;
-    foreach ($low as $p) {
-        $key = mb_strtolower((string) $p['name']);
-        if (isset($manual[$key])) {
-            continue;
-        }
-        // Cantidad base: la brecha hasta el mínimo si la conocemos, si no 1.
-        $base = 1.0;
-        if ($p['min_qty'] !== null && $p['qty_value'] !== null && (float) $p['qty_value'] < (float) $p['min_qty']) {
-            $base = (float) $p['min_qty'] - (float) $p['qty_value'];
-        }
-        $qty = max(1, (int) ceil($base * $mult));
-        $old = $prev[$key] ?? null;
-        q_exec(
-            "INSERT INTO shopping_list_items (period, group_label, name, qty, checked, prices, sort_order, source)
-             VALUES (?,?,?,?,?,?,?, 'auto')",
-            [
-                $period,
-                $groupLabel[$p['category']] ?? 'Otros',
-                $p['name'],
-                $qty,
-                $old ? (int) $old['checked'] : 0,
-                $old ? (string) $old['prices'] : '[]',
-                ++$sort,
-            ]
-        );
-        $created++;
-    }
-
-    $rows = q_all('SELECT * FROM shopping_list_items WHERE period = ? ORDER BY sort_order', [$period]);
-    $total = q_one('SELECT amount FROM shopping_list_totals WHERE period = ?', [$period]);
-    return [
-        'period' => $period,
-        'total' => $total ? $total['amount'] : null,
-        'generated' => $created,
-        'items' => array_map('shopping_item_out', $rows),
-    ];
+    $row['rating'] = (int) $row['rating'];
+    $row['visited'] = as_bool($row['visited'] ?? 0);
+    $row['dish_note'] = (string) ($row['dish_note'] ?? '');
+    return $row;
 }
 
-// --- discoveries ---------------------------------------------------
 function route_discoveries(string $method, ?string $id, ?string $sub): void
 {
     if ($method === 'GET' && $id === null) {
-        json_out(q_all('SELECT * FROM discoveries ORDER BY id'));
+        json_out(array_map('discovery_out', q_all('SELECT * FROM discoveries ORDER BY visited DESC, id')));
     }
 
     if ($method === 'POST' && $id === null) {
@@ -489,10 +434,18 @@ function route_discoveries(string $method, ?string $id, ?string $sub): void
             fail('title es requerido');
         }
         q_exec(
-            'INSERT INTO discoveries (title, source, link, meta, gradient) VALUES (?,?,?,?,?)',
-            [$title, (string) ($b['source'] ?? ''), (string) ($b['link'] ?? ''), (string) ($b['meta'] ?? ''), (string) ($b['gradient'] ?? '')]
+            'INSERT INTO discoveries (title, source, link, meta, gradient, visited, dish_note) VALUES (?,?,?,?,?,?,?)',
+            [
+                $title,
+                (string) ($b['source'] ?? ''),
+                (string) ($b['link'] ?? ''),
+                (string) ($b['meta'] ?? ''),
+                (string) ($b['gradient'] ?? 'linear-gradient(135deg,#DAE8D4,#4A7856)'),
+                !empty($b['visited']) ? 1 : 0,
+                (string) ($b['dish_note'] ?? ''),
+            ]
         );
-        json_out(q_one('SELECT * FROM discoveries WHERE id = ?', [last_id()]), 201);
+        json_out(discovery_out(q_one('SELECT * FROM discoveries WHERE id = ?', [last_id()])), 201);
     }
 
     if ($method === 'PUT' && $id !== null && $sub === 'rating') {
@@ -501,11 +454,126 @@ function route_discoveries(string $method, ?string $id, ?string $sub): void
             fail('rating debe ser 0-5');
         }
         q_exec('UPDATE discoveries SET rating = ? WHERE id = ?', [(int) $rating, (int) $id]);
-        json_out(q_one('SELECT * FROM discoveries WHERE id = ?', [(int) $id]));
+        json_out(discovery_out(q_one('SELECT * FROM discoveries WHERE id = ?', [(int) $id])));
+    }
+
+    // PUT /discoveries/{id} — edición general (marcar "ya fui", nota de qué pedir, etc.)
+    if ($method === 'PUT' && $id !== null && $sub === null) {
+        $existing = q_one('SELECT * FROM discoveries WHERE id = ?', [(int) $id]);
+        if (!$existing) {
+            fail('no encontrado', 404);
+        }
+        $m = array_merge($existing, body());
+        q_exec(
+            'UPDATE discoveries SET title=?, source=?, link=?, meta=?, rating=?, gradient=?, visited=?, dish_note=? WHERE id=?',
+            [
+                (string) $m['title'], (string) $m['source'], (string) $m['link'], (string) $m['meta'],
+                (int) $m['rating'], (string) $m['gradient'], !empty($m['visited']) ? 1 : 0, (string) $m['dish_note'],
+                (int) $id,
+            ]
+        );
+        json_out(discovery_out(q_one('SELECT * FROM discoveries WHERE id = ?', [(int) $id])));
     }
 
     if ($method === 'DELETE' && $id !== null) {
         q_exec('DELETE FROM discoveries WHERE id = ?', [(int) $id]);
+        no_content();
+    }
+
+    fail('Método no permitido', 405);
+}
+
+// --- occasions: ideas para compartir por situación ----------------
+function occasion_out(array $row): array
+{
+    $row['id'] = (int) $row['id'];
+    $row['sort_order'] = (int) $row['sort_order'];
+    $row['items'] = array_map(
+        fn($it) => [
+            'id' => (int) $it['id'],
+            'label' => $it['label'],
+            'detail' => $it['detail'],
+            'place' => $it['place'] === 'fuera' ? 'fuera' : 'casa',
+            'price' => $it['price'],
+        ],
+        q_all('SELECT * FROM occasion_items WHERE occasion_id = ? ORDER BY sort_order, id', [(int) $row['id']])
+    );
+    return $row;
+}
+
+function route_occasions(string $method, ?string $id, ?string $sub, ?string $subId): void
+{
+    // GET /occasions — todas, con sus ideas anidadas
+    if ($method === 'GET' && $id === null) {
+        json_out(array_map('occasion_out', q_all('SELECT * FROM occasions ORDER BY sort_order, id')));
+    }
+
+    // POST /occasions — crea una ocasión
+    if ($method === 'POST' && $id === null) {
+        $b = body();
+        $title = trim((string) ($b['title'] ?? ''));
+        if ($title === '') {
+            fail('title es requerido');
+        }
+        $slug = trim((string) ($b['slug'] ?? '')) ?: ali_slugify($title);
+        // slug único: si choca, sufija
+        if (q_one('SELECT id FROM occasions WHERE slug = ?', [$slug])) {
+            $slug .= '-' . substr((string) time(), -4);
+        }
+        $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM occasions')['m']);
+        q_exec(
+            'INSERT INTO occasions (slug, emoji, title, subtitle, sort_order) VALUES (?,?,?,?,?)',
+            [$slug, (string) ($b['emoji'] ?? ''), $title, (string) ($b['subtitle'] ?? ''), $max + 1]
+        );
+        json_out(occasion_out(q_one('SELECT * FROM occasions WHERE id = ?', [last_id()])), 201);
+    }
+
+    // POST /occasions/{id}/items — agrega una idea
+    if ($method === 'POST' && $id !== null && $sub === 'items') {
+        $occ = q_one('SELECT * FROM occasions WHERE id = ?', [(int) $id]);
+        if (!$occ) {
+            fail('ocasión no encontrada', 404);
+        }
+        $b = body();
+        $label = trim((string) ($b['label'] ?? ''));
+        if ($label === '') {
+            fail('label es requerido');
+        }
+        $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM occasion_items WHERE occasion_id = ?', [(int) $id])['m']);
+        q_exec(
+            'INSERT INTO occasion_items (occasion_id, label, detail, place, price, sort_order) VALUES (?,?,?,?,?,?)',
+            [
+                (int) $id, $label, (string) ($b['detail'] ?? ''),
+                ($b['place'] ?? 'casa') === 'fuera' ? 'fuera' : 'casa',
+                (string) ($b['price'] ?? ''), $max + 1,
+            ]
+        );
+        json_out(occasion_out(q_one('SELECT * FROM occasions WHERE id = ?', [(int) $id])), 201);
+    }
+
+    // DELETE /occasions/{id}/items/{itemId} — quita una idea
+    if ($method === 'DELETE' && $id !== null && $sub === 'items' && $subId !== null) {
+        q_exec('DELETE FROM occasion_items WHERE id = ? AND occasion_id = ?', [(int) $subId, (int) $id]);
+        no_content();
+    }
+
+    // PUT /occasions/{id} — edita la ocasión
+    if ($method === 'PUT' && $id !== null && $sub === null) {
+        $existing = q_one('SELECT * FROM occasions WHERE id = ?', [(int) $id]);
+        if (!$existing) {
+            fail('no encontrado', 404);
+        }
+        $m = array_merge($existing, body());
+        q_exec(
+            'UPDATE occasions SET emoji=?, title=?, subtitle=?, sort_order=? WHERE id=?',
+            [(string) $m['emoji'], (string) $m['title'], (string) $m['subtitle'], (int) $m['sort_order'], (int) $id]
+        );
+        json_out(occasion_out(q_one('SELECT * FROM occasions WHERE id = ?', [(int) $id])));
+    }
+
+    // DELETE /occasions/{id} — borra la ocasión (cascada a items)
+    if ($method === 'DELETE' && $id !== null && $sub === null) {
+        q_exec('DELETE FROM occasions WHERE id = ?', [(int) $id]);
         no_content();
     }
 
@@ -700,6 +768,7 @@ function route_admin(string $method, ?string $action): void
         // Adapta una base YA poblada al arnés de Ali, sin borrar nada:
         //  - rellena qty_value/qty_unit/min_qty de la despensa desde el texto
         //  - siembra el perfil del hogar (assistant_prefs) por UPSERT
+        //  - normaliza los desayunos entre semana que quedaron como "Opcional"
         $n = pantry_backfill_all();
         $data = require APP_ROOT . '/db/seed_data.php';
         $prefs = 0;
@@ -711,8 +780,23 @@ function route_admin(string $method, ?string $action): void
             );
             $prefs++;
         }
+
+        // El desayuno ya no es opcional: de lunes a sábado, cualquier fila que
+        // siga en el estado placeholder del seed (vacía, "Opcional", o marcada
+        // optional=1) pasa a ser el desayuno de siempre. No toca un desayuno
+        // que el usuario ya haya personalizado (título propio y optional=0).
+        $desayunos = q_exec(
+            "UPDATE meal_plan
+                SET title = ?, detail = ?, optional = 0
+              WHERE meal_type = 'Desayuno'
+                AND weekday IN ('lunes','martes','miercoles','jueves','viernes','sabado')
+                AND (optional = 1 OR TRIM(title) = '' OR LOWER(title) LIKE '%opcional%')",
+            [ALI_DESAYUNO_DEFECTO, ALI_DESAYUNO_DEFECTO_DETALLE]
+        );
+
         json_out([
             'ok' => true, 'action' => 'recalc', 'productos' => $n, 'preferencias' => $prefs,
+            'desayunos_normalizados' => $desayunos,
             'message' => 'Cantidades recalculadas y perfil del hogar sembrado (sin borrar datos).',
         ]);
     }
@@ -742,6 +826,7 @@ function run_seed(bool $force): array
             'meal_items', 'meals', 'assistant_events',
             'pantry_items', 'recipe_ingredients', 'recipe_steps', 'recipes',
             'meal_plan', 'shopping_list_items', 'shopping_list_totals',
+            'occasion_items', 'occasions',
             'discoveries', 'nutrition_log', 'meal_memory', 'chat_messages',
         ] as $t) {
             $pdo->exec("DELETE FROM {$t}");
@@ -798,9 +883,23 @@ function run_seed(bool $force): array
 
         foreach ($data['discoveries'] as $d) {
             q_exec(
-                'INSERT INTO discoveries (title, source, link, meta, rating, gradient) VALUES (?,?,?,?,?,?)',
+                'INSERT INTO discoveries (title, source, link, meta, rating, gradient, visited, dish_note) VALUES (?,?,?,?,?,?,?,?)',
                 $d
             );
+        }
+
+        foreach (array_values($data['occasions'] ?? []) as $oi => $occ) {
+            q_exec(
+                'INSERT INTO occasions (slug, emoji, title, subtitle, sort_order) VALUES (?,?,?,?,?)',
+                [$occ[0], $occ[1], $occ[2], $occ[3], $occ[4] ?? $oi]
+            );
+            $ocid = last_id();
+            foreach (array_values($occ[5] ?? []) as $j => $it) {
+                q_exec(
+                    'INSERT INTO occasion_items (occasion_id, label, detail, place, price, sort_order) VALUES (?,?,?,?,?,?)',
+                    [$ocid, $it[0], $it[1] ?? '', ($it[2] ?? 'casa') === 'fuera' ? 'fuera' : 'casa', $it[3] ?? '', $j]
+                );
+            }
         }
 
         $n = $data['nutrition_today'];

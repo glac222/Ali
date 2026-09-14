@@ -56,7 +56,7 @@ export default function App() {
           {screen === 'despensa' && <Despensa onToast={showToast} />}
           {screen === 'lista' && <Lista />}
           {screen === 'recetas' && <Recetas onOpenChat={openChat} />}
-          {screen === 'plan' && <Plan onToast={showToast} onGoToList={() => changeScreen('lista')} />}
+          {screen === 'plan' && <Plan onToast={showToast} onGoToList={() => changeScreen('lista')} onOpenChat={openChat} />}
         </div>
 
         <ChatPanel
