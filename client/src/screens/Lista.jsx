@@ -74,8 +74,15 @@ export default function Lista() {
   async function step(item, delta) {
     // Con precio de lote cada +/− es un paquete (qty se sigue guardando en unidades).
     const n = packSize(item);
-    const count = n > 1 ? Math.ceil(Math.max(1, item.qty) / n) : item.qty;
-    const qty = Math.max(1, count + delta) * (n > 1 ? n : 1);
+    let qty;
+    if (n > 1) {
+      const count = Math.ceil(Math.max(1, item.qty) / n);
+      const nextCount = count + delta;
+      if (nextCount < 1) return; // ya está en el mínimo de un paquete: no redondear hacia arriba
+      qty = nextCount * n;
+    } else {
+      qty = Math.max(1, item.qty + delta);
+    }
     if (qty === item.qty) return;
     // Optimista: el total (que se calcula desde los items) se mueve al instante.
     setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? { ...i, qty } : i)) }));
