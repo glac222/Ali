@@ -62,6 +62,11 @@ export const api = {
     set: (key, value) => request('/prefs', { method: 'PUT', body: JSON.stringify({ key, value }) }),
     remove: (key) => request(`/prefs/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   },
+  prices: {
+    products: () => request('/prices/products'),
+    providers: () => request('/prices/providers'),
+    setPrice: (name, data) => request(`/prices/products/${encodeURIComponent(name)}/prices`, { method: 'POST', body: JSON.stringify(data) }),
+  },
   chat: {
     status: () => request('/chat/status'),
     history: () => request('/chat/history'),
