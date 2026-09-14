@@ -803,11 +803,16 @@ function route_prices(string $method, array $rest): void
         $b = body();
         $provider = trim((string) ($b['provider'] ?? ''));
         $price = $b['price'] ?? null;
+        $brand = trim((string) ($b['brand'] ?? ''));
         if ($provider === '' || $price === null) {
             fail('provider y price son requeridos');
         }
 
         $product = upsert_by_name('products', $name);
+        if ($brand !== '' && $brand !== $product['brand']) {
+            q_exec('UPDATE products SET brand = ? WHERE id = ?', [$brand, $product['id']]);
+            $product['brand'] = $brand;
+        }
         $providerRow = upsert_by_name('providers', $provider);
 
         q_exec(

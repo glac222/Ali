@@ -64,7 +64,7 @@ function lineCost(it) {
   return costFor(bestPrice(it), it.qty);
 }
 
-export default function Lista() {
+export default function Lista({ onGoToPrecios }) {
   const [period, setPeriod] = useState('1 semana');
   const [sort, setSort] = useState('Urgencia');
   const [data, setData] = useState({ items: [], total: null });
@@ -187,6 +187,7 @@ export default function Lista() {
         <button className={'pb' + (buyMode ? ' active' : '')} onClick={toggleBuyMode}>
           🛒 {buyMode ? 'Salir de modo comprar' : 'Modo comprar'}
         </button>
+        {onGoToPrecios && <button className="pb" onClick={onGoToPrecios}>💲 Precios por proveedor</button>}
       </div>
 
       {buyMode ? (

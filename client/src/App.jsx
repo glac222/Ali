@@ -9,6 +9,7 @@ import Despensa from './screens/Despensa.jsx';
 import Lista from './screens/Lista.jsx';
 import Recetas from './screens/Recetas.jsx';
 import Plan from './screens/Plan.jsx';
+import Precios from './screens/Precios.jsx';
 
 export default function App() {
   const [screen, setScreen] = useState('inicio');
@@ -54,7 +55,8 @@ export default function App() {
             <Inicio onGoToPantry={() => changeScreen('despensa')} onGoToPlan={() => changeScreen('plan')} onOpenChat={openChat} />
           )}
           {screen === 'despensa' && <Despensa onToast={showToast} />}
-          {screen === 'lista' && <Lista />}
+          {screen === 'lista' && <Lista onGoToPrecios={() => changeScreen('precios')} />}
+          {screen === 'precios' && <Precios />}
           {screen === 'recetas' && <Recetas onOpenChat={openChat} />}
           {screen === 'plan' && <Plan onToast={showToast} onGoToList={() => changeScreen('lista')} onOpenChat={openChat} />}
         </div>
