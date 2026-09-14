@@ -192,3 +192,28 @@ CREATE TABLE IF NOT EXISTS assistant_events (
   payload    TEXT         NOT NULL,
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Catálogo de productos/proveedores/precios para el "Modo comprar" y para
+-- cargar precios rápido al ver una marca en el súper.
+CREATE TABLE IF NOT EXISTS providers (
+  id   INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(160) NOT NULL UNIQUE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS products (
+  id       INT AUTO_INCREMENT PRIMARY KEY,
+  name     VARCHAR(255) NOT NULL UNIQUE,
+  category VARCHAR(60) NOT NULL DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS product_prices (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  product_id  INT NOT NULL,
+  provider_id INT NOT NULL,
+  price       DECIMAL(10,2) NOT NULL,
+  unit        VARCHAR(60) NOT NULL DEFAULT '',
+  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_product_provider (product_id, provider_id),
+  CONSTRAINT fk_pp_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_pp_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

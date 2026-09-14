@@ -31,6 +31,8 @@ const ALI_DESAYUNO_DEFECTO_DETALLE = 'Rápido y contundente';
 //  Configuración
 // -------------------------------------------------------------------------
 
+const DEFAULT_LIST_PERIOD = '1 semana';
+
 function chat_is_configured(): bool
 {
     $key = env('DEEPSEEK_API_KEY', '');
@@ -388,6 +390,10 @@ function pantry_discount(array $item, string $consumoText, string $motivo): arra
         'UPDATE pantry_items SET qty_value = ?, quantity = ?, status = ?, updated_at = NOW() WHERE id = ?',
         [$newVal, $newText, $status, $id]
     );
+
+    if ($newVal <= 0.0) {
+        add_to_shopping_list_if_missing((string) $item['name'], 'ia');
+    }
 
     return [
         'estado' => 'ok',

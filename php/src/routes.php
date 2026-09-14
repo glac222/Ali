@@ -61,6 +61,9 @@ function handle_api(string $method, string $path): void
         case 'chat':
             route_chat($method, $r(1));
 
+        case 'prices':
+            route_prices($method, array_slice($seg, 1));
+
         default:
             fail('Ruta no encontrada: /api/' . $path, 404);
     }
@@ -75,6 +78,22 @@ function as_bool($v): bool
 function pantry_row(int $id): ?array
 {
     return q_one('SELECT * FROM pantry_items WHERE id = ?', [$id]);
+}
+
+function add_to_shopping_list_if_missing(string $name, string $source = 'manual'): void
+{
+    $existing = q_one(
+        'SELECT id FROM shopping_list_items WHERE period = ? AND checked = 0 AND LOWER(name) = LOWER(?)',
+        [DEFAULT_LIST_PERIOD, $name]
+    );
+    if ($existing) {
+        return;
+    }
+    $max = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [DEFAULT_LIST_PERIOD])['m']);
+    q_exec(
+        "INSERT INTO shopping_list_items (period, group_label, name, qty, prices, sort_order, source) VALUES (?,?,?,1,'[]',?,?)",
+        [DEFAULT_LIST_PERIOD, 'Despensa', $name, $max + 1, $source]
+    );
 }
 
 // --- pantry ------------------------------------------------------------
@@ -114,6 +133,11 @@ function route_pantry(string $method, ?string $id): void
             "UPDATE pantry_items SET name=?, quantity=?, category=?, expires_label=?, status=?, notes=?, updated_at=NOW() WHERE id=?",
             [$m['name'], $m['quantity'], $m['category'], $m['expires_label'], $m['status'], $m['notes'], (int) $id]
         );
+
+        if (($m['status'] === 'agotado' || $m['status'] === 're') && !in_array($existing['status'], ['agotado', 're'], true)) {
+            add_to_shopping_list_if_missing($m['name']);
+        }
+
         json_out(pantry_row((int) $id));
     }
 
@@ -742,6 +766,67 @@ function route_chat(string $method, ?string $sub): void
     }
 
     fail('Método no permitido', 405);
+}
+
+// --- prices: productos, proveedores y precios -----------------------
+function upsert_by_name(string $table, string $name): array
+{
+    $existing = q_one("SELECT * FROM {$table} WHERE name = ?", [$name]);
+    if ($existing) {
+        return $existing;
+    }
+    q_exec("INSERT INTO {$table} (name) VALUES (?)", [$name]);
+    return q_one("SELECT * FROM {$table} WHERE id = ?", [last_id()]);
+}
+
+function route_prices(string $method, array $rest): void
+{
+    if ($method === 'GET' && ($rest[0] ?? null) === 'providers' && count($rest) === 1) {
+        json_out(q_all('SELECT * FROM providers ORDER BY name'));
+    }
+
+    if ($method === 'GET' && ($rest[0] ?? null) === 'products' && count($rest) === 1) {
+        $products = q_all('SELECT * FROM products ORDER BY name');
+        $prices = q_all(
+            'SELECT product_prices.*, providers.name AS provider_name FROM product_prices
+             JOIN providers ON providers.id = product_prices.provider_id
+             ORDER BY product_prices.price ASC'
+        );
+        json_out(array_map(function ($p) use ($prices) {
+            $p['prices'] = array_values(array_filter($prices, fn($pr) => (int) $pr['product_id'] === (int) $p['id']));
+            return $p;
+        }, $products));
+    }
+
+    if ($method === 'POST' && ($rest[0] ?? null) === 'products' && count($rest) === 3 && $rest[2] === 'prices') {
+        $name = urldecode($rest[1]);
+        $b = body();
+        $provider = trim((string) ($b['provider'] ?? ''));
+        $price = $b['price'] ?? null;
+        if ($provider === '' || $price === null) {
+            fail('provider y price son requeridos');
+        }
+
+        $product = upsert_by_name('products', $name);
+        $providerRow = upsert_by_name('providers', $provider);
+
+        q_exec(
+            'INSERT INTO product_prices (product_id, provider_id, price, unit) VALUES (?,?,?,?)
+             ON DUPLICATE KEY UPDATE price = VALUES(price), unit = VALUES(unit), updated_at = NOW()',
+            [$product['id'], $providerRow['id'], (float) $price, (string) ($b['unit'] ?? '')]
+        );
+
+        $rows = q_all(
+            'SELECT product_prices.*, providers.name AS provider_name FROM product_prices
+             JOIN providers ON providers.id = product_prices.provider_id
+             WHERE product_id = ? ORDER BY price ASC',
+            [$product['id']]
+        );
+        $product['prices'] = $rows;
+        json_out($product, 201);
+    }
+
+    fail('Ruta no encontrada', 404);
 }
 
 // --- admin: migraciones y seed via HTTP con token -----------------
