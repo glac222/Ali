@@ -1,38 +1,32 @@
 # Tareas pendientes
 
-## 1. Conectar el chat con la lista de compras — ✅ hecho
-- El chat ahora recibe la lista de compras pendiente (período "1 semana") en su contexto.
-- Puede agregar productos con la etiqueta `[LISTA:producto]` (igual que `[MEMORIA:...]`);
-  el server la parsea e inserta en `shopping_list_items` (evita duplicados).
-- El front muestra un toast "🛒 Añadido a la lista: ..." cuando ocurre.
+## Fusión con la rama del arnés de IA — ✅ hecha
+Se integró `claude/nuevo-proyecto-n1cqzh` (agente con herramientas reales,
+`assistant_reply`, registro de comidas, ocasiones, mejor "modo comprar" con
+precios por lote). Esa rama reemplaza el mecanismo viejo de tags
+`[MEMORIA:]`/`[LISTA:]` en el chat — ahora todo pasa por el bucle de
+herramientas del arnés en `php/src/chat.php`.
 
-## 2. Tabla de productos, proveedores y precios — ✅ modelo creado
-- Tablas nuevas: `products`, `providers`, `product_prices` (precio por producto+proveedor).
-- Endpoints: `GET /api/prices/products`, `GET /api/prices/providers`,
-  `POST /api/prices/products/:name/prices` (upsert por marca).
-- Pendiente: UI de carga rápida en el súper (el usuario dijo que la arma él) y
-  conectar `shopping_list_items.prices` a esta tabla en vez del JSON libre actual.
+De esta rama se preservó (adaptado al esquema nuevo):
+- `providers` / `products` / `product_prices` + `/api/prices/*` — el arnés
+  no tenía catálogo de precios por proveedor.
+- Auto-agregar a la lista cuando la despensa llega a 0 — enganchado en
+  `pantry_discount()` (el descuento real del agente) y en el PUT manual de
+  pantry en `routes.php`.
 
-## 3. Auto-agregar a la lista cuando se agota un producto — ✅ hecho
-- Nuevo estado `agotado` en despensa. En Despensa, click en el punto de estado
-  cicla ok → am → re → agotado.
-- Al pasar a `agotado`, el backend lo agrega automáticamente a la lista de
-  compras (grupo "Despensa") si no está ya.
+El "modo comprar" que trae el arnés (`client/src/screens/Lista.jsx`) es más
+completo que el original de esta rama: entiende precios por paquete/lote,
+ordena por urgencia/precio/tienda y actualiza el total de forma optimista.
 
-## 4. "Modo comprar" — ✅ hecho (en la vista Lista)
-- Botón "🛒 Modo comprar" alterna a un flujo por tienda.
-- Selector de tienda (chips, generadas de los precios existentes).
-- Filtra pendientes disponibles en esa tienda; selección independiente (carrito)
-  con total en vivo y botón "Marcar comprados".
-
-## Backend PHP (producción, Hostinger) — ✅ portado
-- `php/db/schema.sql`: tablas `providers`, `products`, `product_prices`.
-- `php/src/chat.php` + `php/src/routes.php`: mismo contexto de lista para el
-  chat, tag `[LISTA:...]`, auto-agregar por `agotado`, endpoints `/api/prices/*`.
-- Falta correr `…/api/admin/migrate?token=…` en el servidor real después de
-  subir los archivos, para crear las tablas nuevas.
+**Nota:** todo esto solo existe en `php/` (producción/Hostinger). El backend
+Node en `server/` quedó en su versión anterior (más simple, sin el arnés) —
+es el que se usa para desarrollo local rápido, según el README.
 
 ## Pendiente / siguiente
-- Subir los archivos actualizados a Hostinger (no tengo acceso — ver
-  `php/DEPLOY.md`) y correr la migración.
-- Conectar `product_prices` como fuente real de `price-tags` en la lista.
+- Subir los archivos a Hostinger (no tengo acceso — ver `php/DEPLOY.md`) y
+  correr `…/api/admin/migrate?token=…` para crear las tablas nuevas
+  (`providers`, `products`, `product_prices`, `occasions`, `meals`, etc.).
+- Conectar `product_prices` como fuente real de los `price-tags` en la lista
+  (hoy la lista sigue usando el JSON libre `shopping_list_items.prices`).
+- Cargar el `DEEPSEEK_API_KEY` en producción para que el arnés use el modelo
+  real en vez del modo simulado.
