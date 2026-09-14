@@ -120,8 +120,8 @@ return [
 
     'shopping_items' => [
         // [group_label, name, qty, checked, prices]
-        // Los precios base los pone el catálogo de referencia (php/src/shopping.php);
-        // aquí solo dejamos algunos cargados a mano de ejemplo (tiendas registradas).
+        // Ejemplo de precios cargados a mano; los que no tengan uno se completan
+        // con el catálogo REAL de product_prices si existe (php/src/shopping.php).
         ['Urgentes', 'Pan molde integral', 1, 0, [['store' => 'Super Maxi', 'price' => '$1.45', 'best' => true], ['store' => 'Mi Comisariato', 'price' => '$1.60']]],
         ['Urgentes', 'Leche entera', 2, 0, [['store' => 'Mi Comisariato', 'price' => '$1.05', 'best' => true], ['store' => 'Super Maxi', 'price' => '$1.20'], ['store' => 'Tía', 'price' => '$1.15']]],
         ['Carnes', 'Camarones pelados', 1, 0, []],

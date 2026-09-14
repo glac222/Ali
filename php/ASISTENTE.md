@@ -89,17 +89,22 @@ paso post-`migrate` que hace falta.
 
 ## Precios de la lista de compras
 
-Cada ítem de la lista muestra **precio por tienda**. La fuente:
+Cada ítem de la lista muestra **precio por tienda**, siempre con datos reales
+(nunca inventados). La fuente:
 
 1. El precio que alguien cargó a mano (UI) o con `precio_fijar` — **siempre gana**.
-2. Si no hay ninguno, un **catálogo de referencia** por tienda
-   (`SHOP_PRICE_CATALOG` en [`src/shopping.php`](src/shopping.php)) lo calcula al
-   vuelo — no se guarda en la BD. Un producto fuera del catálogo cae al
-   `SHOP_PRICE_FALLBACK` por categoría, así que **ningún ítem queda sin precio**.
+2. Si no hay ninguno, se busca por nombre en el catálogo real de
+   `products`/`providers`/`product_prices` (tablas creadas por
+   `php/db/schema.sql`, cargadas desde recibos reales vía
+   `POST /api/prices/products/:name/prices`) —
+   ver `shop_ref_prices_for_row()` en [`src/shopping.php`](src/shopping.php).
+3. Si el producto no tiene ningún precio real cargado todavía, el ítem queda
+   **"sin precio"** en el total — no se fabrica un número.
 
 Tiendas registradas (`SHOP_STORES`): Mi Comisariato, Super Maxi, Tía, Mercado,
-Tuti, Tienda. Unidad `kg`/`l` en el catálogo = precio a granel (se multiplica por
-"· 1.8 kg"); `un`/`lata`/`paq`/`funda` = precio por pieza (lo multiplica `qty`).
+Tuti, Tienda (más las que se vayan cargando como proveedor real, ej. Megamaxi).
+Unidad `kg`/`l` en el precio cargado = precio a granel (se multiplica por
+"· 1.8 kg"); cualquier otra unidad = precio por pieza (lo multiplica `qty`).
 El "Estimado" del período suma el mejor precio × cantidad de todos los ítems.
 Ajusta los números del catálogo con confianza.
 

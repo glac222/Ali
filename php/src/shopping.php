@@ -102,67 +102,12 @@ const SHOP_COUNT_UNITS = ['un', 'lata', 'paq', 'funda', 'frasco', 'presa', 'file
 const SHOP_STORES = ['Mi Comisariato', 'Super Maxi', 'Tía', 'Mercado', 'Tuti', 'Tienda'];
 
 /**
- * Catálogo de PRECIOS DE REFERENCIA (Guayaquil, aprox.). Sirve para que TODOS los
- * ítems de la lista muestren precio por tienda aunque nadie lo haya cargado a mano.
- * Un precio puesto con `precio_fijar` o en la UI SIEMPRE gana: el catálogo solo
- * rellena los ítems que no tienen precio propio (se calcula al vuelo, no se guarda).
- *
- *   token (subcadena sin tildes del nombre) => [unidad, [tienda => precio unitario]]
- *
- * unidad 'kg' | 'l'   -> precio a granel: se multiplica por la cantidad del ítem
- *                        ("· 1.8 kg" -> precio × 1.8).
- * unidad 'un' | 'lata' | 'paq' | 'funda' | 'frasco' -> precio por pieza: la
- *                        columna qty de la lista lo multiplica.
- *
- * Ajusta los números con confianza. El orden importa: lo específico va primero
- * (se usa la primera entrada cuyo token aparezca en el nombre).
+ * Unidades a granel: si el precio real cargado para el producto está en esta
+ * unidad, se multiplica por la cantidad del ítem ("· 1.8 kg" -> precio × 1.8).
+ * Cualquier otra unidad (unidad, lata, caja, pack...) se toma como precio ya
+ * cerrado por lo que se compra; la columna qty de la lista lo multiplica.
  */
-const SHOP_PRICE_CATALOG = [
-    'higado'       => ['kg',     ['Mercado' => 4.20, 'Tía' => 4.90, 'Mi Comisariato' => 5.50, 'Super Maxi' => 5.90]],
-    'bistec'       => ['kg',     ['Mercado' => 7.00, 'Tía' => 8.20, 'Mi Comisariato' => 9.00, 'Super Maxi' => 9.50]],
-    'carne de res' => ['kg',     ['Mercado' => 7.00, 'Tía' => 8.20, 'Super Maxi' => 9.50]],
-    'pechuga'      => ['kg',     ['Mercado' => 5.20, 'Tuti' => 5.60, 'Tía' => 5.80, 'Mi Comisariato' => 6.40, 'Super Maxi' => 6.60]],
-    'pollo'        => ['kg',     ['Mercado' => 5.00, 'Tuti' => 5.40, 'Tía' => 5.60, 'Mi Comisariato' => 6.20, 'Super Maxi' => 6.40]],
-    'chuleta'      => ['un',     ['Mercado' => 1.90, 'Tía' => 2.30, 'Mi Comisariato' => 2.60, 'Super Maxi' => 2.80]],
-    'chancho'      => ['kg',     ['Mercado' => 5.80, 'Tía' => 6.50, 'Mi Comisariato' => 7.20, 'Super Maxi' => 7.60]],
-    'camaron'      => ['kg',     ['Mercado' => 8.20, 'Tía' => 9.60, 'Mi Comisariato' => 10.50, 'Super Maxi' => 11.80]],
-    'pescado'      => ['kg',     ['Mercado' => 5.50, 'Tía' => 6.40, 'Mi Comisariato' => 7.20, 'Super Maxi' => 7.90]],
-    'salchicha'    => ['un',     ['Tía' => 0.10, 'Tuti' => 0.11, 'Mi Comisariato' => 0.13, 'Super Maxi' => 0.14, 'Tienda' => 0.15]],
-    'jamon'        => ['kg',     ['Tía' => 8.90, 'Mi Comisariato' => 9.50, 'Super Maxi' => 10.90]],
-    'huevo'        => ['un',     ['Mercado' => 0.12, 'Tía' => 0.13, 'Tuti' => 0.13, 'Mi Comisariato' => 0.15, 'Super Maxi' => 0.16]],
-    'leche'        => ['l',      ['Tuti' => 0.98, 'Tía' => 1.00, 'Mi Comisariato' => 1.05, 'Super Maxi' => 1.15, 'Tienda' => 1.25]],
-    'yogurt'       => ['l',      ['Tía' => 2.60, 'Mi Comisariato' => 2.90, 'Super Maxi' => 3.20]],
-    'queso'        => ['paq',    ['Tía' => 2.10, 'Tuti' => 2.20, 'Mi Comisariato' => 2.30, 'Super Maxi' => 2.70]],
-    'pan molde'    => ['funda',  ['Tía' => 1.40, 'Tuti' => 1.42, 'Super Maxi' => 1.45, 'Mi Comisariato' => 1.60, 'Tienda' => 1.75]],
-    'pan'          => ['funda',  ['Tía' => 1.40, 'Super Maxi' => 1.45, 'Mi Comisariato' => 1.60, 'Tienda' => 1.75]],
-    'arroz'        => ['kg',     ['Mercado' => 0.80, 'Tía' => 0.85, 'Tuti' => 0.88, 'Mi Comisariato' => 0.95, 'Super Maxi' => 1.05]],
-    'papa'         => ['kg',     ['Mercado' => 0.70, 'Tía' => 0.90, 'Mi Comisariato' => 1.05, 'Super Maxi' => 1.15]],
-    'choclo'       => ['un',     ['Mercado' => 0.30, 'Tía' => 0.45, 'Mi Comisariato' => 0.55, 'Super Maxi' => 0.60]],
-    'guineo'       => ['un',     ['Mercado' => 0.10, 'Tía' => 0.15, 'Mi Comisariato' => 0.18, 'Super Maxi' => 0.20]],
-    'avena'        => ['kg',     ['Tía' => 1.90, 'Mi Comisariato' => 2.10, 'Super Maxi' => 2.40]],
-    'menestra'     => ['lata',   ['Tía' => 0.95, 'Tuti' => 1.00, 'Mi Comisariato' => 1.10, 'Super Maxi' => 1.25]],
-    'lenteja'      => ['lata',   ['Tía' => 0.95, 'Mi Comisariato' => 1.10, 'Super Maxi' => 1.25]],
-    'atun'         => ['lata',   ['Tía' => 1.15, 'Tuti' => 1.20, 'Mi Comisariato' => 1.30, 'Super Maxi' => 1.45, 'Tienda' => 1.50]],
-    'sardina'      => ['lata',   ['Tía' => 1.05, 'Mi Comisariato' => 1.20, 'Super Maxi' => 1.35, 'Tienda' => 1.40]],
-    'lechuga'      => ['un',     ['Mercado' => 0.50, 'Tía' => 0.75, 'Mi Comisariato' => 0.90, 'Super Maxi' => 0.95]],
-    'tomate'       => ['un',     ['Mercado' => 0.15, 'Tía' => 0.22, 'Mi Comisariato' => 0.28, 'Super Maxi' => 0.30]],
-    'aguacate'     => ['un',     ['Mercado' => 0.35, 'Tía' => 0.55, 'Mi Comisariato' => 0.70, 'Super Maxi' => 0.80]],
-    'cebolla'      => ['un',     ['Mercado' => 0.12, 'Tía' => 0.18, 'Mi Comisariato' => 0.22, 'Super Maxi' => 0.25]],
-    'pimiento'     => ['un',     ['Mercado' => 0.20, 'Tía' => 0.30, 'Mi Comisariato' => 0.38, 'Super Maxi' => 0.42]],
-    'encebollado'  => ['un',     ['Mercado' => 2.50, 'Tienda' => 3.00]],
-    'chifle'       => ['funda',  ['Tía' => 1.10, 'Tuti' => 1.15, 'Mi Comisariato' => 1.30, 'Super Maxi' => 1.45, 'Tienda' => 1.50]],
-    'ajo'          => ['frasco', ['Tía' => 1.20, 'Mi Comisariato' => 1.45, 'Super Maxi' => 1.60]],
-];
-
-/** Precio de referencia por categoría para lo que no está en el catálogo. */
-const SHOP_PRICE_FALLBACK = [
-    'carnes'    => ['kg',   ['Mercado' => 6.50, 'Tía' => 7.50, 'Super Maxi' => 8.50]],
-    'lacteos'   => ['un',   ['Tía' => 1.20, 'Mi Comisariato' => 1.45, 'Super Maxi' => 1.70]],
-    'granos'    => ['kg',   ['Tía' => 1.20, 'Mi Comisariato' => 1.40, 'Super Maxi' => 1.60]],
-    'vegetales' => ['un',   ['Mercado' => 0.30, 'Tía' => 0.45, 'Super Maxi' => 0.60]],
-    'latas'     => ['lata', ['Tía' => 1.10, 'Mi Comisariato' => 1.30, 'Super Maxi' => 1.50]],
-    'otros'     => ['un',   ['Mercado' => 1.50, 'Tía' => 2.00, 'Super Maxi' => 2.50]],
-];
+const SHOP_BULK_UNITS = ['kg', 'l'];
 
 // ---------------------------------------------------------------------------
 //  Unidades: base común para poder sumar y restar contra la despensa
@@ -411,23 +356,43 @@ function shop_name_amount(string $name): string
     return isset($parts[1]) ? trim($parts[1]) : '';
 }
 
-/** Etiqueta de grupo visible -> token de categoría ("Carnes" -> "carnes"). */
-function shop_group_to_category(string $group): string
+/**
+ * Todos los precios reales cargados (recibo o carga manual), agrupados por
+ * clave de producto normalizada (sin tildes, minúsculas). Se cachea por
+ * request: el catálogo no cambia dentro de una misma respuesta.
+ *
+ * @return array<string,array<int,array{price:float,unit:string,provider:string}>>
+ */
+function shop_real_price_catalog(): array
 {
-    static $rev = null;
-    if ($rev === null) {
-        $rev = [];
-        foreach (SHOP_GROUP_LABEL as $cat => $label) {
-            $rev[mb_strtolower($label)] = $cat;
-        }
+    static $byKey = null;
+    if ($byKey !== null) {
+        return $byKey;
     }
-    return $rev[mb_strtolower(trim($group))] ?? 'otros';
+    $rows = q_all(
+        'SELECT products.name AS product_name, product_prices.price, product_prices.unit,
+                providers.name AS provider_name
+         FROM product_prices
+         JOIN products ON products.id = product_prices.product_id
+         JOIN providers ON providers.id = product_prices.provider_id'
+    );
+    $byKey = [];
+    foreach ($rows as $r) {
+        $key = ali_deaccent(mb_strtolower(trim((string) $r['product_name'])));
+        if ($key === '') {
+            continue;
+        }
+        $byKey[$key][] = ['price' => (float) $r['price'], 'unit' => (string) $r['unit'], 'provider' => (string) $r['provider_name']];
+    }
+    return $byKey;
 }
 
 /**
- * Precios de referencia por tienda para una fila de la lista, desde el catálogo
- * (o el fallback por categoría). Marca como best el más barato. No toca la BD;
- * se usa solo para MOSTRAR precio en los ítems que no tienen uno propio.
+ * Precios REALES (cargados desde un recibo o a mano) para una fila de la
+ * lista, buscando por coincidencia de nombre en el catálogo de productos.
+ * Marca como best el más barato. No toca la BD ni inventa nada: si no hay un
+ * precio real cargado para ese producto, devuelve [] y el ítem queda "sin
+ * precio" en el total (ver shopping_list_total).
  *
  * @param array{name?:string,group_label?:string} $row
  * @return array<int,array{store:string,price:string,best?:bool}>
@@ -440,48 +405,40 @@ function shop_ref_prices_for_row(array $row): array
         return [];
     }
 
-    $spec = null;
-    foreach (SHOP_PRICE_CATALOG as $needle => $s) {
-        if (preg_match('/\b' . preg_quote((string) $needle, '/') . '/u', $key)) {
-            $spec = $s;
-            break;
+    $matches = [];
+    foreach (shop_real_price_catalog() as $productKey => $entries) {
+        if (str_contains($key, $productKey) || str_contains($productKey, $key)) {
+            array_push($matches, ...$entries);
         }
     }
-    if ($spec === null) {
-        $cat = shop_group_to_category((string) ($row['group_label'] ?? ''));
-        $spec = SHOP_PRICE_FALLBACK[$cat] ?? SHOP_PRICE_FALLBACK['otros'];
-    }
-
-    [$unit, $stores] = $spec;
-
-    // Unidad a granel (kg/L): el precio es por la cantidad del ítem ("· 1.8 kg").
-    $factor = 1.0;
-    if ($unit === 'kg' || $unit === 'l') {
-        $amt = qty_parse(shop_name_amount($name));
-        if ($amt['value'] !== null) {
-            $conv = shop_convert((float) $amt['value'], $amt['unit'] !== '' ? $amt['unit'] : $unit, $unit);
-            if ($conv !== null && $conv > 0) {
-                $factor = $conv;
-            }
-        }
+    if (!$matches) {
+        return [];
     }
 
     $tags = [];
     $cheapIdx = 0;
     $cheap = INF;
-    $i = 0;
-    foreach ($stores as $store => $price) {
-        $val = round((float) $price * $factor, 2);
+    foreach ($matches as $i => $m) {
+        $val = $m['price'];
+        // Unidad a granel (kg/L): el precio cargado es por unidad de peso/volumen;
+        // se multiplica por la cantidad del ítem ("· 1.8 kg" -> precio × 1.8).
+        if (in_array($m['unit'], SHOP_BULK_UNITS, true)) {
+            $amt = qty_parse(shop_name_amount($name));
+            if ($amt['value'] !== null) {
+                $conv = shop_convert((float) $amt['value'], $amt['unit'] !== '' ? $amt['unit'] : $m['unit'], $m['unit']);
+                if ($conv !== null && $conv > 0) {
+                    $val *= $conv;
+                }
+            }
+        }
+        $val = round($val, 2);
         if ($val < $cheap) {
             $cheap = $val;
             $cheapIdx = $i;
         }
-        $tags[] = ['store' => $store, 'price' => '$' . number_format($val, 2)];
-        $i++;
+        $tags[] = ['store' => $m['provider'], 'price' => '$' . number_format($val, 2)];
     }
-    if ($tags) {
-        $tags[$cheapIdx]['best'] = true;
-    }
+    $tags[$cheapIdx]['best'] = true;
     return $tags;
 }
 
@@ -704,8 +661,8 @@ function shop_line_cost($prices, int $qty): ?float
 /**
  * Total del período: suma del costo de cada línea (shop_line_cost = mejor precio
  * × cantidad, o × paquetes si el precio es "por lote"). Los ítems sin precio
- * propio se estiman con el catálogo de referencia (shop_ref_prices_for_row), así
- * que "sin precio" solo queda para lo que ni el catálogo ni el fallback cubren.
+ * propio se completan con precios REALES cargados para ese producto
+ * (shop_ref_prices_for_row); lo que no tiene ni uno ni otro cae en "sin precio".
  * @return array{amount: ?string, sum: float, priced: int, unpriced: int, note: ?string}
  */
 function shopping_list_total(string $period, ?array $rows = null): array
