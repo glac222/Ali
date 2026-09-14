@@ -12,7 +12,8 @@ const FIXED_RULES = `REGLAS FIJAS (NUNCA ROMPER):
 9. Sin patacones en casa (tiempo)
 10. Desayuno es OPCIONAL — batido+sándwiches es opción rápida, no obligatoria
 11. Cuando registres comidas que Gus menciona, responde confirmando y añade [MEMORIA:descripción corta] al final para que el sistema la guarde
-12. Cuando Gus pida añadir algo a la lista de compras, responde confirmando y añade [LISTA:nombre del producto] al final (uno por producto) para que el sistema lo guarde. No inventes productos que no pidió.`;
+12. Cuando Gus pida añadir algo a la lista de compras, responde confirmando y añade [LISTA:nombre del producto] al final (uno por producto) para que el sistema lo guarde. No inventes productos que no pidió.
+13. Cuando Gus te diga un precio real ("el queso de mesa cuesta $2 en Megamaxi", "corrige el precio del atún"), responde confirmando y añade [PRECIO:producto|tienda|precio] al final (ej. [PRECIO:Queso de mesa|Megamaxi|$2.00]). Funciona aunque el producto no esté en la lista actual: queda guardado como referencia real para la próxima vez. Nunca inventes un precio que Gus no dio.`;
 
 export const DEFAULT_LIST_PERIOD = '1 semana';
 
@@ -55,6 +56,7 @@ CÓMO RESPONDER:
 - Si dice "hoy comí X", confirma y añade [MEMORIA:Lunes almuerzo=X]
 - Si pide lista de compras, genera según período
 - Si pide añadir algo a la lista de compras, confirma y añade [LISTA:producto]
+- Si te da un precio real, confirma y añade [PRECIO:producto|tienda|precio]
 - Si pide ideas para comer/peli, sugiere con despensa + opciones externas con precios
 - Si pide cambio en plan, ajusta y confirma`;
 }

@@ -601,7 +601,7 @@ CÓMO ACTÚAS — lo más importante
   • "usé / gasté / se acabó / se terminó X" → ajusta el stock hacia abajo.
   • "compré X" → agrégalo a la despensa (combínalo si ya existe). Solo pregunta si falta la cantidad o la presentación.
   • "agrega X a la lista" → agrégalo a la lista de compras.
-  • "corrige el precio de X" / "X cuesta \$N en tal tienda" → precio_fijar sobre el ítem de la lista de compras.
+  • "corrige el precio de X" / "X cuesta \$N en tal tienda" / "guarda de referencia que X vale \$N" → precio_fijar. Funciona aunque X no esté hoy en la lista de compras: igual queda guardado como referencia real para la próxima vez.
   • un cambio en la plantilla semanal ("los jueves quiero Y") → plan_ajustar.
   • un cambio para una FECHA concreta, hoy o futura ("mañana ceno Y", "cambia la merienda del jueves 4") → comida_registrar con esa fecha (estado="planificada" si aún no pasó). NO uses plan_ajustar para una fecha puntual.
   • "en realidad comí Y" / "no, fue Y" → vuelve a llamar comida_registrar con el mismo día y tipo; reemplaza la anterior y corrige el stock. No hace falta borrar nada.
@@ -768,8 +768,8 @@ function assistant_tools(): array
             'mover_a_despensa' => $b('por defecto true'),
         ], ['items']),
 
-        $tool('precio_fijar', 'Fija o corrige los precios por tienda de un ítem de la lista de compras. Para "el pan cuesta $1.20 en Tía", "corrige el precio del atún", "en Super Maxi la leche está a 1.35". La lista ya muestra precios de referencia por tienda en todos los ítems; usa esto para corregirlos con un dato real.', [
-            'item' => $s('nombre o id del ítem en la lista de compras'),
+        $tool('precio_fijar', 'Fija o corrige los precios por tienda de un producto. Para "el pan cuesta $1.20 en Tía", "corrige el precio del atún", "en Super Maxi la leche está a 1.35", "guarda de referencia que el queso de mesa vale $2 en Megamaxi". Si el producto está en la lista de compras actual, también actualiza ese ítem; si no, igual se guarda en el catálogo real de precios (product_prices) para cuando se agregue a cualquier lista futura. Nunca inventes el precio: solo lo que el usuario te dio.', [
+            'item' => $s('nombre del producto (o id de un ítem de la lista de compras)'),
             'precios' => [
                 'type' => 'array',
                 'description' => 'uno o más precios por tienda',
@@ -1334,12 +1334,14 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                 $row = ctype_digit($ref)
                     ? q_one('SELECT * FROM shopping_list_items WHERE id = ? AND period = ?', [(int) $ref, $periodo])
                     : q_one('SELECT * FROM shopping_list_items WHERE period = ? AND LOWER(name) LIKE ? ORDER BY sort_order', [$periodo, '%' . mb_strtolower($ref) . '%']);
-                if (!$row) {
-                    return ['estado' => 'no_encontrado', 'mensaje' => "«{$ref}» no está en la lista de compras ({$periodo}). Agrégalo con lista_agregar si quieres registrarle un precio."];
-                }
+                // Sin match en la lista actual: igual se guarda como referencia real
+                // en el catálogo (products/providers/product_prices), reusable en
+                // cualquier lista futura aunque el producto no esté hoy en esta.
+                $productName = $row ? (string) $row['name'] : $ref;
 
                 $in = is_array($args['precios'] ?? null) ? $args['precios'] : [];
                 $nuevos = [];
+                $product = null;
                 foreach ($in as $p) {
                     $tienda = trim((string) ($p['tienda'] ?? ''));
                     $precio = trim((string) ($p['precio'] ?? ''));
@@ -1358,9 +1360,34 @@ function assistant_dispatch(string $name, array $args, array &$changed, array &$
                         $entry['best'] = true;
                     }
                     $nuevos[] = $entry;
+
+                    // Referencia REAL y durable en el catálogo (products/providers/
+                    // product_prices), reusable en cualquier lista futura aunque
+                    // este ítem no esté hoy en la lista de compras.
+                    $catalogPrice = (float) preg_replace('/[^\d.]/', '', str_replace(',', '.', $precio));
+                    if ($catalogPrice > 0) {
+                        $catalogUnit = preg_match('~/\s*([a-zA-Z]+)~', $precio, $um) ? mb_strtolower($um[1]) : '';
+                        $product = $product ?? upsert_by_name('products', $productName);
+                        $providerRow = upsert_by_name('providers', $tienda);
+                        q_exec(
+                            'INSERT INTO product_prices (product_id, provider_id, price, unit) VALUES (?,?,?,?)
+                             ON DUPLICATE KEY UPDATE price = VALUES(price), unit = VALUES(unit), updated_at = NOW()',
+                            [$product['id'], $providerRow['id'], $catalogPrice, $catalogUnit]
+                        );
+                    }
                 }
                 if (!$nuevos) {
                     return ['estado' => 'error', 'mensaje' => 'No diste ningún precio válido (tienda + precio).'];
+                }
+
+                if (!$row) {
+                    ali_log_event($name, "precio referencia {$productName}", $args);
+                    return [
+                        'estado' => 'ok',
+                        'item' => $productName,
+                        'nota' => "«{$productName}» no está en la lista de compras ({$periodo}), pero guardé el precio como referencia: la próxima vez que se agregue a cualquier lista, aparecerá con este precio.",
+                        'precios' => $nuevos,
+                    ];
                 }
 
                 $base = ($args['reemplazar'] ?? true) === false
