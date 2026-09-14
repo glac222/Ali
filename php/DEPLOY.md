@@ -136,6 +136,29 @@ Respuesta esperada: `{"ok":true,...}`.
 3. Si cambió el código PHP, sube `php/src/`.
 4. Si cambió `db/schema.sql`, vuelve a llamar `/api/admin/migrate?token=...`.
 
+## Actualizar al arnés de Ali (el asistente con herramientas)
+
+Cuando subas la versión con el asistente Ali, además de los pasos de arriba:
+
+1. Sube `php/src/` y `php/db/` completos.
+2. `https://ali.calimundo.com/api/admin/migrate?token=EL_TOKEN`
+   — crea las tablas nuevas (`meals`, `meal_items`, `assistant_prefs`,
+   `assistant_events`, `occasions`, `occasion_items`) y las columnas nuevas de
+   `pantry_items`, `shopping_list_items` y `discoveries` (`visited`, `dish_note`).
+   Es idempotente.
+3. `https://ali.calimundo.com/api/admin/recalc?token=EL_TOKEN`
+   — **una vez** después de migrar. Sin borrar nada: rellena
+   `qty_value` / `qty_unit` / `min_qty` de la despensa (las carnes pasan a
+   "porciones"), siembra el perfil del hogar (`assistant_prefs`) y normaliza los
+   desayunos entre semana que estaban como "Opcional".
+   (Las ocasiones y la bitácora de lugares **no** necesitan `recalc`.)
+4. Solo si quieres **reiniciar todo** a los datos de ejemplo:
+   `https://ali.calimundo.com/api/admin/seed?token=EL_TOKEN&force=1`
+   (esto SÍ borra despensa, plan y lista actuales, y recarga el set inicial de
+   ocasiones para compartir y lugares).
+
+Detalle de cómo funciona el arnés: `php/ASISTENTE.md`.
+
 ## Backup
 
 Todo el estado vive en MariaDB. hPanel → **Bases de datos → phpMyAdmin** →

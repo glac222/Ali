@@ -13,7 +13,19 @@ const CAT_GROUP_LABEL = { carnes: 'Carnes y proteínas', lacteos: 'Lácteos y pa
 
 const EMPTY_FORM = { name: '', quantity: '', category: 'carnes', expires_label: '' };
 
-const STATUS_CYCLE = ['ok', 'am', 're', 'agotado'];
+// "Sin existencias" = agotado. En este proyecto status='re' ya es "agotado"
+// (el backend lo excluye de la despensa en routes.php: WHERE status <> 're').
+// Respaldo: qty_value en 0 o texto de cantidad "0"/"0 g"/"agotado".
+function isOutOfStock(it) {
+  if (it.status === 're') return true;
+  const v = it.qty_value;
+  if (v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v))) {
+    return Number(v) <= 0;
+  }
+  const q = String(it.quantity || '').trim().toLowerCase();
+  // "0", "0 g", "0.00 kg" -> agotado; pero NO "0,5 kg" ni "0.5 l".
+  return q === 'agotado' || /^0([.,]0+)?(\s|$)/.test(q);
+}
 
 export default function Despensa({ onToast }) {
   const [items, setItems] = useState([]);
@@ -24,6 +36,7 @@ export default function Despensa({ onToast }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanResult, setScanResult] = useState(false);
+  const [showOut, setShowOut] = useState(false);
 
   useEffect(() => {
     api.pantry.list().then(setItems).finally(() => setLoading(false));
@@ -37,15 +50,18 @@ export default function Despensa({ onToast }) {
     });
   }, [items, activeCat, search]);
 
+  const available = useMemo(() => filtered.filter((it) => !isOutOfStock(it)), [filtered]);
+  const outOfStock = useMemo(() => filtered.filter(isOutOfStock), [filtered]);
+
   const grouped = useMemo(() => {
     const g = {};
-    for (const it of filtered) {
+    for (const it of available) {
       g[it.category] = g[it.category] || [];
       g[it.category].push(it);
     }
     const order = ['carnes', 'lacteos', 'granos', 'vegetales', 'latas'];
     return Object.fromEntries(order.filter((c) => g[c]).map((c) => [c, g[c]]));
-  }, [filtered]);
+  }, [available]);
 
   const urgentCount = items.filter((i) => i.status === 'am' || i.status === 're').length;
 
@@ -64,18 +80,27 @@ export default function Despensa({ onToast }) {
     setTimeout(() => setScanResult(true), 1400);
   }
 
-  async function cycleStatus(it) {
-    const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(it.status) + 1) % STATUS_CYCLE.length];
-    const updated = await api.pantry.update(it.id, { status: next });
-    setItems((cur) => cur.map((i) => (i.id === it.id ? updated : i)));
-    if (next === 'agotado') onToast?.('🛒 Añadido a la lista de compras');
-  }
-
   async function addScannedToPantry() {
     const created = await api.pantry.create({ name: 'Atún Van Camps en agua 142g', quantity: '1 lata', category: 'latas', expires_label: '2 años' });
     setItems((cur) => [...cur, created]);
     setScanOpen(false);
     onToast?.('✓ Añadido a despensa');
+  }
+
+  async function addScannedToList() {
+    try {
+      await api.shoppingList.create({
+        name: 'Atún Van Camps en agua 142g',
+        group_label: 'Latas y despensa',
+        qty: 1,
+        period: '1 semana',
+        source: 'scan',
+      });
+      setScanOpen(false);
+      onToast?.('✓ Añadido a la lista');
+    } catch (err) {
+      onToast?.('No se pudo añadir a la lista');
+    }
   }
 
   if (loading) return <div className="screen active"><div className="loading-msg">Cargando…</div></div>;
@@ -106,21 +131,48 @@ export default function Despensa({ onToast }) {
           <div className="cat-label">{CAT_GROUP_LABEL[cat] || cat}</div>
           {rows.map((it) => (
             <div className="pr" key={it.id}>
-              <div
-                className={'pd' + (it.status === 'am' ? ' am' : it.status === 're' ? ' re' : it.status === 'agotado' ? ' agotado' : '')}
-                onClick={() => cycleStatus(it)}
-                title="Click para cambiar estado (agotado = va a la lista de compras)"
-              />
+              <div className={'pd' + (it.status === 'am' ? ' am' : it.status === 're' ? ' re' : '')} />
               <div className="pi">
                 <div className="pn">{it.name}</div>
-                <div className="pm">{it.status === 'agotado' ? 'Agotado' : it.expires_label}{it.notes ? ` · ${it.notes}` : ''}</div>
+                <div className="pm">{it.expires_label}{it.notes ? ` · ${it.notes}` : ''}</div>
               </div>
               <div className="pq">{it.quantity}</div>
             </div>
           ))}
         </div>
       ))}
-      {filtered.length === 0 && <div className="loading-msg">Sin resultados</div>}
+
+      {available.length === 0 && outOfStock.length === 0 && (
+        <div className="loading-msg">Sin resultados</div>
+      )}
+      {available.length === 0 && outOfStock.length > 0 && (
+        <div className="loading-msg">Todo lo de esta vista está agotado</div>
+      )}
+
+      {outOfStock.length > 0 && (
+        <div className="stock-out">
+          <button className="stock-out-head" onClick={() => setShowOut((v) => !v)}>
+            <div className="pd re" />
+            <span>Sin existencias</span>
+            <span className="stock-out-count">{outOfStock.length}</span>
+            <span className={'stock-out-chev' + (showOut ? ' open' : '')}>›</span>
+          </button>
+          {showOut && (
+            <div className="stock-out-body">
+              {outOfStock.map((it) => (
+                <div className="pr out" key={it.id}>
+                  <div className="pd re" />
+                  <div className="pi">
+                    <div className="pn">{it.name}</div>
+                    <div className="pm">{CAT_GROUP_LABEL[it.category] || it.category}{it.expires_label ? ` · ${it.expires_label}` : ''}{it.notes ? ` · ${it.notes}` : ''}</div>
+                  </div>
+                  <div className="pq">{it.quantity || 'agotado'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <button className="fab" onClick={() => setShowModal(true)}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
@@ -176,7 +228,7 @@ export default function Despensa({ onToast }) {
           <div className="sn">Atún Van Camps en agua 142g</div>
           <div className="sb">7861456300034 · Van Camps</div>
           <div className="scan-acts">
-            <button className="ss" onClick={() => setScanOpen(false)}>+ Lista</button>
+            <button className="ss" onClick={addScannedToList}>+ Lista</button>
             <button className="sp" onClick={addScannedToPantry}>+ Despensa</button>
           </div>
         </div>
