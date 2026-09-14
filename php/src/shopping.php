@@ -506,22 +506,25 @@ function shopping_list_generate(string $period): array
     }
     unset($n);
 
-    // Nombres ya presentes a mano / por escáner: no duplicar.
+    // Nombres ya presentes a mano / por escáner / por chat: no duplicar.
+    // Ya no se filtra por período: hay UNA sola lista; el período solo escala
+    // las cantidades (el $mult de arriba). Así no quedan "silos" vacíos por
+    // período sin generar.
     $manual = [];
-    foreach (q_all("SELECT name FROM shopping_list_items WHERE period = ? AND source <> 'auto'", [$period]) as $r) {
+    foreach (q_all("SELECT name FROM shopping_list_items WHERE source <> 'auto'") as $r) {
         $manual[shop_basename_key((string) $r['name'])] = true;
     }
     // Estado previo de lo 'auto' para conservar checked / precios.
     $prev = [];
-    foreach (q_all("SELECT name, checked, prices FROM shopping_list_items WHERE period = ? AND source = 'auto'", [$period]) as $r) {
+    foreach (q_all("SELECT name, checked, prices FROM shopping_list_items WHERE source = 'auto'") as $r) {
         $prev[shop_basename_key((string) $r['name'])] = $r;
     }
 
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        q_exec("DELETE FROM shopping_list_items WHERE period = ? AND source = 'auto'", [$period]);
-        $sort = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items WHERE period = ?', [$period])['m']);
+        q_exec("DELETE FROM shopping_list_items WHERE source = 'auto'");
+        $sort = (int) (q_one('SELECT COALESCE(MAX(sort_order), -1) AS m FROM shopping_list_items')['m']);
         $created = 0;
         $seen = [];
 
@@ -572,7 +575,7 @@ function shopping_list_generate(string $period): array
         throw $e;
     }
 
-    $rows = q_all('SELECT * FROM shopping_list_items WHERE period = ? ORDER BY sort_order', [$period]);
+    $rows = q_all('SELECT * FROM shopping_list_items ORDER BY sort_order');
     $totals = shopping_list_total($period, $rows);
     return [
         'period' => $period,
@@ -667,7 +670,7 @@ function shop_line_cost($prices, int $qty): ?float
  */
 function shopping_list_total(string $period, ?array $rows = null): array
 {
-    $rows = $rows ?? q_all('SELECT name, group_label, qty, prices, checked FROM shopping_list_items WHERE period = ?', [$period]);
+    $rows = $rows ?? q_all('SELECT name, group_label, qty, prices, checked FROM shopping_list_items');
     $sum = 0.0;
     $priced = 0;
     $unpriced = 0;
