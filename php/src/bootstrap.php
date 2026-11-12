@@ -45,6 +45,9 @@ function env(string $key, ?string $default = null): ?string
 }
 
 load_env(APP_ROOT . '/.env');
+// Claves que se agregan después sin tocar el .env original (las del acceso privado, 12-nov-2026). No pisa lo que ya
+// trae el .env.
+load_env(APP_ROOT . '/.env.local');
 
 // Zona horaria fija: la app es de Gus en Guayaquil (UTC-5, sin horario de verano).
 // Sin esto, date('Y-m-d') de PHP (suele ser UTC en hosting compartido) y el

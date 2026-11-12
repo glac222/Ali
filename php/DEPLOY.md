@@ -104,7 +104,8 @@ CORS_ORIGIN=https://ali.calimundo.com
 ```
 
 **Acceso privado (desde el 12-nov-2026, `src/acceso.php`):** sin `ALI_CLAVE_WEB` y `ALI_LLAVE_OFICINA` no entra
-nadie. Gus entra una vez por dispositivo con `https://ali.calimundo.com/?llave=<ALI_CLAVE_WEB>` (queda una cookie por
+nadie. Pueden ir en el `.env` o en `public_html/ali/.env.local` (se carga después y no pisa el `.env`; así
+se agregaron en producción sin tocar el `.env` original). Gus entra una vez por dispositivo con `https://ali.calimundo.com/?llave=<ALI_CLAVE_WEB>` (queda una cookie por
 un año; la clave no queda en la barra). Hermes y ali-jefe mandan la cabecera `X-Ali-Llave: <ALI_LLAVE_OFICINA>`.
 `/api/health` y `/api/admin` (con su token) siguen libres.
 
