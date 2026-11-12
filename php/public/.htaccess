@@ -18,9 +18,11 @@ RedirectMatch 403 (?i)^/?\.env
   # La API siempre pasa por el front controller PHP.
   RewriteRule ^api(/.*)?$ index.php [L,QSA]
 
-  # Archivos y carpetas reales (assets compilados) se sirven tal cual.
-  RewriteCond %{REQUEST_FILENAME} -f [OR]
-  RewriteCond %{REQUEST_FILENAME} -d
+  # index.html tampoco se sirve directo: pasa por la puerta (index.php lo lee del disco, no hay vuelta).
+  RewriteRule ^index\.html$ index.php [L,QSA]
+
+  # Archivos reales (assets compilados) se sirven tal cual. Las carpetas no: /assets/ mostraba la app sin la puerta.
+  RewriteCond %{REQUEST_FILENAME} -f
   RewriteRule ^ - [L]
 
   # Cualquier otra ruta -> SPA React, pasando por la puerta de index.php (la app es privada: src/acceso.php).
