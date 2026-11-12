@@ -103,11 +103,14 @@ ALI_LLAVE_OFICINA=otra-mas-larga-y-aleatoria
 CORS_ORIGIN=https://ali.calimundo.com
 ```
 
-**Acceso privado (desde el 12-nov-2026, `src/acceso.php`):** sin `ALI_CLAVE_WEB` y `ALI_LLAVE_OFICINA` no entra
-nadie. Pueden ir en el `.env` o en `public_html/ali/.env.local` (se carga después y no pisa el `.env`; así
-se agregaron en producción sin tocar el `.env` original). Gus entra una vez por dispositivo con `https://ali.calimundo.com/?llave=<ALI_CLAVE_WEB>` (queda una cookie por
-un año; la clave no queda en la barra). Hermes y ali-jefe mandan la cabecera `X-Ali-Llave: <ALI_LLAVE_OFICINA>`.
-`/api/health` y `/api/admin` (con su token) siguen libres.
+**Acceso privado (desde el 12-nov-2026, `src/acceso.php`):** Gus entra con **usuario y contraseña** (usuario
+`ALI_USUARIO`, por defecto `gus`); el dispositivo queda recordado un año. La primera vez la pantalla le pide crear la
+contraseña, solo mientras no exista ninguna y antes de `ALI_ALTA_HASTA` (marca de tiempo Unix): así nadie la ve ni
+pasa por un chat. Queda solo su hash en `public_html/ali/.acceso.json`. Para cambiarla u olvidarla: borrar ese archivo
+y poner un `ALI_ALTA_HASTA` nuevo. `ALI_CLAVE_WEB` es el secreto con que el servidor firma las cookies (Gus no lo usa).
+Hermes y ali-jefe mandan la cabecera `X-Ali-Llave: <ALI_LLAVE_OFICINA>`. 5 contraseñas malas por IP bloquean 15 min.
+`/api/health` y `/api/admin` (con su token) siguen libres. Estas claves pueden ir en el `.env` o en
+`public_html/ali/.env.local` (se carga después y no pisa el `.env`; así se agregaron en producción).
 
 Genera el `ADMIN_TOKEN` con cualquier cosa impredecible (ej.
 `openssl rand -hex 24` o un gestor de contraseñas).

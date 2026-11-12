@@ -49,14 +49,19 @@ if (preg_match('#^/api(?:/(.*))?$#', $path, $m)) {
     exit;
 }
 
-// --- Entrar con el enlace privado (?llave=...) ---------------------------
-if (isset($_GET['llave'])) {
-    if (!ali_clave_web_valida((string) $_GET['llave'])) {
-        ali_pagina_acceso('Esa clave no sirve.');
+// --- Entrar con usuario y contraseña (o crearla la primera vez) ----------
+if ($method === 'POST' && !ali_acceso_navegador()) {
+    $accion = (string) ($_POST['accion'] ?? '');
+    $usuario = (string) ($_POST['usuario'] ?? '');
+    $clave = (string) ($_POST['clave'] ?? '');
+    $aviso = $accion === 'crear'
+        ? ali_crear($usuario, $clave, (string) ($_POST['clave2'] ?? ''))
+        : ali_entrar($usuario, $clave);
+    if ($aviso !== null) {
+        ali_pagina_acceso($aviso);
     }
-    ali_dar_cookie();
     header('Cache-Control: no-store');
-    header('Location: ' . $path, true, 303);   // sin la clave en la barra ni en el historial
+    header('Location: ' . $path, true, 303);   // la recarga no vuelve a mandar el formulario
     exit;
 }
 if (!ali_acceso_navegador()) {
