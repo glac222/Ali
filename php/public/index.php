@@ -26,6 +26,7 @@ if ($src === null) {
 }
 
 require $src . '/bootstrap.php';
+require $src . '/acceso.php';
 
 $uri  = $_SERVER['REQUEST_URI'] ?? '/';
 $path = parse_url($uri, PHP_URL_PATH) ?: '/';
@@ -38,10 +39,30 @@ if (PHP_SAPI === 'cli-server' && $path !== '/' && is_file(__DIR__ . $path)) {
 }
 
 if (preg_match('#^/api(?:/(.*))?$#', $path, $m)) {
+    // La API es privada (src/acceso.php). Libres: el preflight, health y admin (que pide su propio token).
+    $ruta = explode('/', trim($m[1] ?? '', '/'))[0];
+    if ($method !== 'OPTIONS' && !in_array($ruta, ['health', 'admin'], true) && !ali_autorizado()) {
+        fail('Acceso privado: abre tu enlace de Mi Cocina.', 401);
+    }
     require $src . '/routes.php';
     handle_api($method, $m[1] ?? '');
     exit;
 }
+
+// --- Entrar con el enlace privado (?llave=...) ---------------------------
+if (isset($_GET['llave'])) {
+    if (!ali_clave_web_valida((string) $_GET['llave'])) {
+        ali_pagina_acceso('Esa clave no sirve.');
+    }
+    ali_dar_cookie();
+    header('Cache-Control: no-store');
+    header('Location: ' . $path, true, 303);   // sin la clave en la barra ni en el historial
+    exit;
+}
+if (!ali_acceso_navegador()) {
+    ali_pagina_acceso();
+}
+ali_dar_cookie();   // renueva el año
 
 // --- SPA fallback --------------------------------------------------------
 $index = __DIR__ . '/index.html';

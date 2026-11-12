@@ -23,8 +23,8 @@ RedirectMatch 403 (?i)^/?\.env
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # Cualquier otra ruta -> SPA React.
-  RewriteRule ^ index.html [L]
+  # Cualquier otra ruta -> SPA React, pasando por la puerta de index.php (la app es privada: src/acceso.php).
+  RewriteRule ^ index.php [L]
 </IfModule>
 
 # --- Cache de assets con hash de Vite ----------------------------------

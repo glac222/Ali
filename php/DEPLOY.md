@@ -97,8 +97,16 @@ DEEPSEEK_API_KEY=sk-...tu-key-de-deepseek...
 
 ADMIN_TOKEN=pon-aqui-algo-largo-y-aleatorio-40-chars
 
+ALI_CLAVE_WEB=otra-clave-larga-y-aleatoria
+ALI_LLAVE_OFICINA=otra-mas-larga-y-aleatoria
+
 CORS_ORIGIN=https://ali.calimundo.com
 ```
+
+**Acceso privado (desde el 12-nov-2026, `src/acceso.php`):** sin `ALI_CLAVE_WEB` y `ALI_LLAVE_OFICINA` no entra
+nadie. Gus entra una vez por dispositivo con `https://ali.calimundo.com/?llave=<ALI_CLAVE_WEB>` (queda una cookie por
+un año; la clave no queda en la barra). Hermes y ali-jefe mandan la cabecera `X-Ali-Llave: <ALI_LLAVE_OFICINA>`.
+`/api/health` y `/api/admin` (con su token) siguen libres.
 
 Genera el `ADMIN_TOKEN` con cualquier cosa impredecible (ej.
 `openssl rand -hex 24` o un gestor de contraseñas).
